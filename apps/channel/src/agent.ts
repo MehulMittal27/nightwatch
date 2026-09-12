@@ -81,5 +81,10 @@ export class ChannelRunAgent extends AbstractAgent {
 }
 
 export function makeChannelAgent(threadId: string) {
-  return new ChannelRunAgent(makeAgent, threadId);
+  // Workplace MCP is disabled for the model on purpose: Ambiguous can create,
+  // edit, share and permanently delete documents, and handing those to the
+  // model would be an ungated external write - exactly what this project argues
+  // against. The workspace is reached only through the approval-gated
+  // draft_circular tool. See apps/channel/src/ambiguous.ts.
+  return new ChannelRunAgent((id: string) => makeAgent(id, { workplace: false }), threadId);
 }

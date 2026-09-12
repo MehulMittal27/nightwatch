@@ -2,7 +2,7 @@ import { createChannel } from "@copilotkit/channels";
 import { isSearchConfigured, isWorkplaceConfigured, WORKPLACE_CONTEXT } from "agent-core";
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
-import { readStatus, startDrill, welcomeMessage } from "./nightwatch";
+import { draftCircular, readStatus, startDrill, welcomeMessage } from "./nightwatch";
 import { readThread, searchTheWeb } from "./tools";
 
 // Tools are registered only when their credential is present, so the agent is
@@ -10,6 +10,7 @@ import { readThread, searchTheWeb } from "./tools";
 const tools = [
   startDrill,
   readStatus,
+  draftCircular,
   readThread,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];

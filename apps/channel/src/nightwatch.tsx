@@ -31,6 +31,8 @@ import {
 } from "@copilotkit/channels";
 import { z } from "zod";
 
+import { createCircularDocument } from "./ambiguous.ts";
+
 import {
   hashPlan,
   isUnknown,
@@ -591,6 +593,142 @@ export const readStatus = defineChannelTool({
       })),
       auditTrail: store.auditFor(eventId).map((r) => `${utc(r.at)} ${r.kind}: ${r.detail}`),
     };
+  },
+});
+
+/**
+ * Draft the follow-up circular, and gate the write.
+ *
+ * The document is composed here from the event store - every figure in it is
+ * read, never generated - and then NOTHING happens until a human clicks. The
+ * agent cannot reach the workspace itself: workplace MCP is disabled for the
+ * model in agent.ts, so this tool is the only door, and the door has a gate on
+ * it. Writing to someone's workspace is a tier 3 action exactly like moving a
+ * telescope.
+ */
+export const draftCircular = defineChannelTool({
+  name: "draft_circular",
+  description:
+    "Draft the follow-up circular for the burst tracked in this thread and post it for human approval. Nothing is written to the workspace until a human approves it. Call this when asked to draft, write up, or publish the circular. Do not write the circular text yourself - this tool composes it from the recorded observation.",
+  parameters: z.object({}),
+  async handler(_args, { thread }: any) {
+    const eventId = store.knownEventIds().at(-1);
+    const notice = eventId === undefined ? undefined : store.latestNotice(eventId);
+    if (eventId === undefined || notice === undefined) {
+      return "No burst is being tracked in this thread yet, so there is nothing to circulate. Offer to start the drill.";
+    }
+
+    const completed = store
+      .observationsFor(eventId)
+      .find((o) => o.state === "COMPLETE" && o.result !== undefined);
+    if (completed === undefined) {
+      return "No completed observation yet, so there is no result to circulate. Say that plainly and stop.";
+    }
+
+    const plan = store.plansFor(eventId).find((p) => hashPlan(p) === completed.key.planHash);
+    const site = plan ? siteName(plan.siteId) : completed.key.telescope;
+    const r = completed.result!;
+    const title = `${eventId} - follow-up circular (notice v${notice.version})`;
+    const body = [
+      `${eventId} follow-up observation`,
+      "",
+      `Localisation (notice v${notice.version}): RA ${notice.raDeg.toFixed(4)} deg, Dec ${notice.decDeg.toFixed(4)} deg, error radius ${notice.errorRadiusDeg.toFixed(2)} deg.`,
+      `Observed from ${site} under approval ${completed.key.planHash}.`,
+      plan ? `Sequence: ${plan.exposureCount} x ${plan.exposureSec}s in ${plan.filter} band.` : "",
+      `Candidate position: RA ${num(r.candidateRaDeg, 4)} deg, Dec ${num(r.candidateDecDeg, 4)} deg.`,
+      `SNR ${num(r.snr, 1)}; limiting magnitude ${num(r.limitingMagnitude, 2)}.`,
+      "",
+      "SIMULATED observation. No real telescope was commanded and no real photons were collected.",
+      "",
+      "Provenance:",
+      ...store.auditFor(eventId).map((a) => `- ${utc(a.at)} ${a.kind}: ${a.detail}`),
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+
+    let settled = false;
+    await thread.post(
+      <Message accent={ACCENT.proposal}>
+        <Header>Follow-up circular - awaiting approval</Header>
+        <Context>Nothing has been written to the workspace. Approval is required first.</Context>
+        <Section>
+          <Markdown>{"```\n" + body.slice(0, 2200) + "\n```"}</Markdown>
+        </Section>
+        <Context>
+          Composed from the event store, not written by the model. Every figure above is read
+          from the recorded observation.
+        </Context>
+        <Actions>
+          <Button
+            value="publish"
+            style="primary"
+            onClick={async (ctx: any) => {
+              if (settled) return;
+              settled = true;
+              // THE GATE. The notice version is re-read from the store at the
+              // moment of the click - a revision landing while this card sat on
+              // screen means the result is about a superseded localisation.
+              const current = store.latestNotice(eventId);
+              if (current === undefined || current.version !== notice.version) {
+                await ctx.thread.update(
+                  ctx.message.ref,
+                  <Message accent={ACCENT.voided}>
+                    <Header>Circular withheld</Header>
+                    <Context>
+                      {`A revised notice (v${current?.version ?? "?"}) arrived after this draft was composed. Nothing was written to the workspace.`}
+                    </Context>
+                  </Message>,
+                );
+                return;
+              }
+              try {
+                const doc = await createCircularDocument(title, body);
+                await ctx.thread.update(
+                  ctx.message.ref,
+                  <Message accent={ACCENT.done}>
+                    <Header>Circular published to the workspace</Header>
+                    <Context>{`${title} - document ${doc.id}`}</Context>
+                    <Context>Written only after explicit human approval.</Context>
+                  </Message>,
+                );
+              } catch (err) {
+                await ctx.thread.update(
+                  ctx.message.ref,
+                  <Message accent={ACCENT.voided}>
+                    <Header>Workspace write failed</Header>
+                    <Section>
+                      <Markdown>{err instanceof Error ? err.message : String(err)}</Markdown>
+                    </Section>
+                    <Context>Nothing was written.</Context>
+                  </Message>,
+                );
+              }
+            }}
+          >
+            PUBLISH
+          </Button>
+          <Button
+            value="discard"
+            style="danger"
+            onClick={async (ctx: any) => {
+              if (settled) return;
+              settled = true;
+              await ctx.thread.update(
+                ctx.message.ref,
+                <Message>
+                  <Header>Circular discarded</Header>
+                  <Context>Nothing was written to the workspace.</Context>
+                </Message>,
+              );
+            }}
+          >
+            DISCARD
+          </Button>
+        </Actions>
+      </Message>,
+    );
+
+    return "Circular drafted and posted for approval. Nothing has been written to the workspace. Stop here; a human decides.";
   },
 });
 
