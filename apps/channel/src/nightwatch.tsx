@@ -76,6 +76,9 @@ const ACCENT = {
 
 const siteName = (id: string) => SITES.find((s) => s.id === id)?.name ?? id;
 
+/** Slack truncates a wide table. The observatory name alone identifies the row. */
+const shortSite = (id: string) => siteName(id).split(",")[0] ?? id;
+
 function num(v: Maybe<number>, digits = 1, suffix = ""): string {
   return isUnknown(v) ? "unknown" : `${v.toFixed(digits)}${suffix}`;
 }
@@ -121,22 +124,23 @@ function alertCard(notice: Notice, statuses: SiteStatus[]) {
       <Table
         columns={[
           { header: "Site" },
-          { header: "Altitude now" },
-          { header: "Moon sep." },
+          { header: "Alt now" },
           { header: "Window tonight" },
           { header: "Verdict" },
         ]}
       >
         {statuses.map((s) => (
           <Row>
-            <Cell>{siteName(s.siteId)}</Cell>
+            <Cell>{shortSite(s.siteId)}</Cell>
             <Cell>{num(s.altitudeNowDeg, 1, " deg")}</Cell>
-            <Cell>{num(s.moonSeparationDeg, 0, " deg")}</Cell>
             <Cell>{windowText(s)}</Cell>
             <Cell>{VERDICT[s.recommendation]}</Cell>
           </Row>
         ))}
       </Table>
+      <Context>
+        {`Moon separation: ${statuses.map((s) => `${shortSite(s.siteId)} ${num(s.moonSeparationDeg, 0, " deg")}`).join("  ·  ")}`}
+      </Context>
       {computedAt ? <Context>{`Computed for ${utc(computedAt)}`}</Context> : null}
     </Message>
   );
