@@ -36,13 +36,16 @@ export const SITES: Site[] = [
     instruments: ['WIYN 0.9m / HDI'],
   },
   {
-    id: 'vbo',
-    name: 'Vainu Bappu Observatory, Kavalur',
-    latDeg: 12.5764,
-    lonDeg: 78.8253,
-    elevationM: 725,
+    // Southern hemisphere on purpose. A revision that moves a burst across the
+    // celestial equator wipes out every northern site at once; without a
+    // southern station there is no repoint to propose, only a stand-down.
+    id: 'sso',
+    name: 'Siding Spring Observatory, NSW',
+    latDeg: -31.2733,
+    lonDeg: 149.0644,
+    elevationM: 1165,
     altitudeLimitDeg: 30,
-    instruments: ['1.3m JCB / photometer'],
+    instruments: ['ANU 2.3m / WiFeS', 'Skymapper'],
   },
 ];
 
@@ -114,7 +117,7 @@ export const FIXTURE_SITE_STATUSES: SiteStatus[] = [
     notes: ['Above limit now', 'Moon well separated', '4h48m of usable window remaining'],
   },
   {
-    siteId: 'vbo',
+    siteId: 'sso',
     recommendation: 'WAIT',
     altitudeNowDeg: -12.6,
     moonSeparationDeg: 96.9,
