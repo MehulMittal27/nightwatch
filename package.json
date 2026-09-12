@@ -21,7 +21,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:web": "npm run dev --workspace web",
     "test": "npm run test --workspaces --if-present",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm run typecheck:core && npm test && npm run test:core",
+    "typecheck:core": "tsc -p src/nightwatch/tsconfig.json",
+    "test:core": "node --test --experimental-strip-types \"src/nightwatch/**/*.test.ts\""
   },
   "overrides": {
     "@ag-ui/client": "0.0.59"

@@ -10,7 +10,7 @@
  * wrong - fix models.ts, not the callers.
  */
 
-import type { Notice, Plan, Site, SiteStatus } from './domain/models.js';
+import type { Notice, Plan, Site, SiteStatus } from './domain/models.ts';
 
 // ---------------------------------------------------------------------------
 // Sites - static config, the real values
