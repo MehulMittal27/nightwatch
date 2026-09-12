@@ -56,7 +56,8 @@ Every file below is new:
 | **The gate** | `isValidFor`, `hashPlan`, `receiveNotice`, `recordApproval`, `revokeApproval`, `coverageLoss` | Consent bound to `(event, version, site, planHash)`, revoked at intake when a revision lands |
 | **Write boundary** | `src/nightwatch/adapters/telescope.ts`, `simulator.ts` | The only path to the telescope: re-checks consent twice, idempotent on a four-part key |
 | **Science** | `src/nightwatch/science/visibility.ts` | `astronomy-engine` altitude, Moon separation, and grid-sampled observing windows. Pure |
-| **Slack surface** | `apps/channel/src/nightwatch.tsx` | Alert card, computed site table, APPROVE/MODIFY/IGNORE round-trip, in-place simulator status, revocation card |
+| **Slack surface** | `apps/channel/src/nightwatch.tsx` | Alert card, computed site table, APPROVE/MODIFY/IGNORE round-trip, in-place simulator status, revocation card, approval-gated circular |
+| **Workspace boundary** | `apps/channel/src/ambiguous.ts` | Minimal MCP client behind the gate; the model holds no workspace tools |
 | **Tests** | `state.test.ts`, `telescope.test.ts`, `visibility.test.ts`, `fixtures.test.ts`, `sites.test.ts` | 42 tests, including the two that encode the thesis |
 
 ## Title and description
@@ -86,6 +87,7 @@ above it, and everyone saw it.
 | **CopilotKit Channels** | The entire Slack surface: managed delivery, the interactive approval round-trip, and in-place card updates as the simulated observation progresses |
 | **OpenAI** (`gpt-5.6-sol`) | The agent's prose and tool selection. Deliberately produces **no numbers** |
 | **Exa** | Evidence lookup on the burst, auto-registered by the template |
+| **Ambiguous** | The follow-up circular is composed from the event store and written to the workspace as a document - but only behind the same approval gate as the telescope. The model has no workspace tools at all |
 
 **Cut during the event, and why.** Ambiguous and Auth0 were both scoped as post-gate stretch work
 with hard caps. Slack app provisioning overran by roughly 50 minutes — a hand-made Slack app was

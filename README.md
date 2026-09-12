@@ -65,7 +65,8 @@ system.
 |---|---|---|
 | Every coordinate, altitude, Moon separation, observing window, exposure time and SNR | The prose in the thread | Whether the telescope moves |
 | Which site is recommended | Which tool to call | Whether a revised plan is worth approving |
-| Whether consent is still valid | — | — |
+| Whether consent is still valid | — | Whether the circular is written to the workspace |
+| The full text of the circular, composed from the audit log | — | — |
 
 **No number in this system is produced by a language model.** The cards are rendered in code
 directly from the event store; the agent is told, in its own context, that it must say `unknown`
@@ -123,6 +124,19 @@ opens, because a revision can land during the slew.
 A blocked call is not an exception path bolted on afterwards. It returns as a tool result, the
 model re-plans, and the thread explains what happened.
 
+**The same gate guards the workspace.** Ambiguous exposes create, edit, share and
+permanent-delete tools. Handing those to the model would be an ungated external write — the exact
+failure this project argues against — so **workplace MCP is disabled for the model entirely**
+(`apps/channel/src/agent.ts`). The workspace is reachable only through `draft_circular`, which
+composes the follow-up circular from the event store, posts it for approval, and writes nothing
+until a human clicks. The notice version is re-read at the moment of that click, so a revision
+landing while the draft sits on screen **withholds** the circular rather than publishing a result
+about a superseded localisation.
+
+One more thing that boundary now enforces: an MCP tool failure arrives as a *successful* JSON-RPC
+response carrying `isError`. Ignore it and the thread reports a write that never happened. It is
+checked, and a write that returns no document id is refused rather than confirmed.
+
 ## Failure design
 
 | Failure | Behaviour |
@@ -162,7 +176,8 @@ Stated plainly because the project's argument is about honesty.
   in any tested case.
 - **The drill is started by asking.** Channels has no proactive-posting API — a thread only exists
   once something inbound creates it. Everything after that first message happens with nobody typing.
-- **Ambiguous and Auth0 were cut** when the Slack provisioning overran. See `SUBMISSION.md`.
+- **Auth0 was cut** when the Slack provisioning overran. See `SUBMISSION.md`.
+- **The event store is in-process.** Restarting the runtime resets the demo.
 
 ## Related work
 
@@ -233,9 +248,10 @@ ended one grid step late, at an instant the target was already below the site's 
 
 ## Built with
 
-**CopilotKit Channels** (the Slack surface, cards, and approval round-trip) · **OpenAI
-`gpt-5.6-sol`** (prose only) · **Exa** (evidence lookup) · **astronomy-engine** (all visibility
-computation) · **NASA GCN** (real notice payloads)
+**CopilotKit Channels** (the Slack surface, cards, and both approval round-trips) · **OpenAI
+`gpt-5.6-sol`** (prose only, never a number) · **Exa** (evidence lookup) · **Ambiguous**
+(the follow-up circular, written to the workspace only behind the gate) · **astronomy-engine**
+(all visibility computation) · **NASA GCN** (real notice payloads)
 
 Starter kit: [CopilotKit/agents-everywhere-starter-kit](https://github.com/CopilotKit/agents-everywhere-starter-kit).
 See [`SUBMISSION.md`](SUBMISSION.md) for exactly what was inherited and what was built during the event.
