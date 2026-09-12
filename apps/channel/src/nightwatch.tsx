@@ -256,8 +256,22 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
     </Message>,
   );
 
+  // `thread.post` resolves to the MessageRef itself - not an object carrying
+  // one. Getting that wrong calls update(undefined) and takes the process down.
   let progressRef: unknown = null;
-  const updates: Promise<void>[] = [];
+  let pending: Promise<void> = Promise.resolve();
+
+  const render = (observation: Observation) => {
+    // Serialised: Slack applies edits in order, and an out-of-order update
+    // would leave the card showing an earlier step than the one it reached.
+    pending = pending.then(async () => {
+      const card = progressCard(observation, plan);
+      if (progressRef === null) progressRef = await ctx.thread.post(card);
+      else await ctx.thread.update(progressRef, card);
+    });
+    // A failed card update must never kill the runtime mid-observation.
+    pending.catch(() => {});
+  };
 
   try {
     await executeApprovedPlan(
@@ -265,19 +279,11 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
       new SimulatedTelescope({ stepMs: 2500 }),
       plan,
       approval,
-      (observation) => {
-        updates.push(
-          (async () => {
-            const card = progressCard(observation, plan);
-            if (progressRef === null) progressRef = (await ctx.thread.post(card)).ref;
-            else await ctx.thread.update(progressRef, card);
-          })(),
-        );
-      },
+      render,
     );
-    await Promise.all(updates);
+    await pending;
   } catch (err) {
-    await Promise.all(updates).catch(() => {});
+    await pending.catch(() => {});
     await ctx.thread.post(
       <Message accent={ACCENT.voided}>
         <Header>Telescope call blocked</Header>
