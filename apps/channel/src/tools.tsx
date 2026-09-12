@@ -23,6 +23,8 @@ import type { InteractionContext } from "@copilotkit/channels";
 export { searchTheWeb } from "./search";
 import { z } from "zod";
 import { FIXTURE_SITE_STATUSES, NOTICE_V1, SITES } from "../../../src/nightwatch/fixtures";
+import { RevocationCard } from "./components";
+import { forgetApprovalMessage, getApprovalMessage, rememberApprovalMessage } from "./approval-registry";
 
 /**
  * Read the incident context already present in the conversation.
@@ -102,6 +104,7 @@ export const proposeObservationPlan = defineChannelTool({
   parameters: z.object({
     eventId: z.string(),
     noticeVersion: z.number().int(),
+    siteId: z.string().describe("The site's id, e.g. 'teide' — not the display name."),
     siteName: z.string(),
     exposureSec: z.number(),
     exposureCount: z.number().int(),
@@ -110,7 +113,17 @@ export const proposeObservationPlan = defineChannelTool({
     assumptions: z.array(z.string()).max(5).default([]),
   }),
   async handler(
-    { eventId, noticeVersion, siteName, exposureSec, exposureCount, filter, startNoLaterThanUtc, assumptions },
+    {
+      eventId,
+      noticeVersion,
+      siteId,
+      siteName,
+      exposureSec,
+      exposureCount,
+      filter,
+      startNoLaterThanUtc,
+      assumptions,
+    },
     { thread },
   ) {
     // The SDK retains inline action handlers after a message replacement. Queue
@@ -137,7 +150,7 @@ export const proposeObservationPlan = defineChannelTool({
       previousReport = previousReport.then(report, report);
       return previousReport;
     };
-    await thread.post(
+    const ref = await thread.post(
       <Message accent="#C4145F">
         <Header>Review observation plan</Header>
         <Section>
@@ -181,7 +194,48 @@ export const proposeObservationPlan = defineChannelTool({
         </Actions>
       </Message>,
     );
+    // Remembered so a later notice revision can void THIS card by editing it in
+    // place, from a run that has no closure over this one's ctx.message.ref.
+    rememberApprovalMessage(eventId, siteId, ref);
 
     return "Plan posted; decision pending. Stop here. Do not execute the plan, command a telescope, or call write tools. A later click only reports the decision; the agent does not automatically resume.";
+  },
+});
+
+/**
+ * Void a previously posted approval card in place, because the notice it was
+ * proposed against has a new version. Edits the ORIGINAL message rather than
+ * posting a new one — a voided approval sitting next to a still-visible
+ * "APPROVED" card is exactly the confusion this project exists to prevent.
+ *
+ * DEMO TRIGGER FOR NOW: called directly (or by the agent, reading a revision
+ * out of the thread) rather than by P2's real invalidation path, which lands
+ * at Phase 6. The registry lookup and the update mechanics do not change
+ * when that trigger is swapped in.
+ */
+export const voidApprovalCard = defineChannelTool({
+  name: "void_approval_card",
+  description:
+    "Void a previously posted observation-plan approval in place, because the notice it was approved against has a new version. Call this instead of posting a new message — it edits the original approval card into a revocation card. If there is no pending approval for that event and site, it reports that instead of posting anything.",
+  parameters: z.object({
+    eventId: z.string(),
+    siteId: z.string().describe("The site's id, e.g. 'teide' — must match the id used in propose_observation_plan."),
+    siteName: z.string(),
+    noticeVersion: z.number().int().describe("The new, revoking notice version."),
+    reason: z.string(),
+    coverageLoss: z.string(),
+  }),
+  async handler({ eventId, siteId, siteName, noticeVersion, reason, coverageLoss }, { thread, platform, signal }) {
+    const ref = getApprovalMessage(eventId, siteId);
+    if (!ref) {
+      return `No pending approval found for ${eventId} at ${siteName} — nothing to void.`;
+    }
+    const ui = await RevocationCard.render(
+      { eventId, noticeVersion, siteName, reason, coverageLoss },
+      { platform, signal: signal ?? new AbortController().signal } as never,
+    );
+    await thread.update(ref, ui);
+    forgetApprovalMessage(eventId, siteId);
+    return `Voided the approval card for ${eventId} at ${siteName}. Do not post a new message — the edit is the whole action.`;
   },
 });

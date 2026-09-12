@@ -3,7 +3,7 @@ import { isSearchConfigured, isWorkplaceConfigured, WORKPLACE_CONTEXT } from "ag
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
 import { AlertCard, RevocationCard, SiteTableCard, welcomeMessage } from "./components";
-import { getSiteStatus, proposeObservationPlan, readThread, searchTheWeb } from "./tools";
+import { getSiteStatus, proposeObservationPlan, readThread, searchTheWeb, voidApprovalCard } from "./tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
@@ -11,6 +11,7 @@ const tools = [
   readThread,
   getSiteStatus,
   proposeObservationPlan,
+  voidApprovalCard,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];
 
@@ -36,7 +37,7 @@ export const channel = createChannel({
       value:
         "Call get_site_status first for any question about the current notice or which site to use — never estimate a position, altitude, or window yourself. " +
         "Then draw alert_card and site_table_card with those exact numbers. " +
-        "If a notice you already proposed a plan for gets a new version, draw revocation_card so the voided approval is never left looking active. " +
+        "If a notice you already posted an observation plan for gets a new version, call void_approval_card — it edits the original card into a voided state itself. Do not post a separate revocation_card next to it; that leaves both visible and defeats the point. " +
         "Prefer cards over prose whenever the answer has structure. No number in this channel is ever produced by you — only copied from a tool result.",
     },
     ...(isWorkplaceConfigured()

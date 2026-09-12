@@ -8,7 +8,7 @@ import {
   concreteThread,
 } from "./testing/managed-gateway";
 import { z } from "zod";
-import { getSiteStatus, proposeObservationPlan, readThread } from "./tools";
+import { getSiteStatus, proposeObservationPlan, readThread, voidApprovalCard } from "./tools";
 
 /** Only the methods these tools call; the rest of Thread is irrelevant here. */
 const stubContext = (thread: Record<string, unknown>) =>
@@ -64,6 +64,7 @@ describe("propose_observation_plan", () => {
   const args = {
     eventId: "GRB260912A",
     noticeVersion: 1,
+    siteId: "teide",
     siteName: "Teide Observatory, Tenerife",
     exposureSec: 120,
     exposureCount: 5,
@@ -235,4 +236,79 @@ describe("propose_observation_plan", () => {
       },
     );
   }
+});
+
+describe("void_approval_card", () => {
+  it("edits the original approval card in place rather than posting a second message", async () => {
+    const gateway = new ManagedGateway();
+    const channel = createChannel({ name: "nightwatch", identifyUser: "platform" });
+    const planArgs = {
+      eventId: "GRB990101B",
+      noticeVersion: 1,
+      siteId: "vbo",
+      siteName: "Vainu Bappu Observatory, Kavalur",
+      exposureSec: 60,
+      exposureCount: 3,
+      filter: "g",
+      startNoLaterThanUtc: "2026-01-01T04:00:00Z",
+      assumptions: [] as string[],
+    };
+    let voidResult: unknown;
+    channel.onMessage(async ({ thread }) => {
+      const concrete = concreteThread(thread);
+      const ctx = {
+        thread: concrete,
+        user: { id: "u1", name: "Priya" },
+        actor: { id: "a1", kind: "human" },
+        platform: "slack",
+      } as never;
+      await proposeObservationPlan.handler(planArgs, ctx);
+      voidResult = await voidApprovalCard.handler(
+        {
+          eventId: planArgs.eventId,
+          siteId: planArgs.siteId,
+          siteName: planArgs.siteName,
+          noticeVersion: 2,
+          reason: "Notice revised to v2 — position moved 3.1°",
+          coverageLoss: "Exposure not yet started; no time lost.",
+        },
+        ctx,
+      );
+    });
+    const handle = await startChannelsWithGatewayControl([channel], {
+      session: gateway,
+      scope: { projectId: 1, channelName: "nightwatch" },
+      runtimeInstanceId: "rti_void",
+      runCanonical: async (args) => args.execute({}),
+      loadHistory: async () => [],
+    });
+    try {
+      await gateway.deliver(preparedDelivery("void", "slack", { kind: "text", text: "trigger" }));
+      assert.match(String(voidResult), /Voided the approval card/);
+      const payloads = gateway.packets.map(({ payload }) => payload);
+      const creates = payloads.filter((p) => p.kind === "slack.message.create");
+      const replaces = payloads.filter((p) => p.kind === "slack.message.replace");
+      assert.equal(creates.length, 1, "only the original approval card should ever be created");
+      assert.equal(replaces.length, 1, "the void must edit the original message, not post a second one");
+      assert.match(JSON.stringify(replaces[0]), /APPROVAL VOIDED/);
+      assert.match(JSON.stringify(replaces[0]), /Notice revised to v2/);
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  it("reports nothing to void, and posts nothing, when there is no pending approval", async () => {
+    const result = await voidApprovalCard.handler(
+      {
+        eventId: "GRB000000Z",
+        siteId: "nowhere",
+        siteName: "Nowhere Observatory",
+        noticeVersion: 2,
+        reason: "test",
+        coverageLoss: "test",
+      },
+      stubContext({}),
+    );
+    assert.match(String(result), /No pending approval found/);
+  });
 });
