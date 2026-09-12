@@ -236,6 +236,34 @@ async function postProposal(thread: any, plan: Plan): Promise<void> {
           APPROVE
         </Button>
         <Button
+          value="modify"
+          onClick={async (ctx: any) => {
+            if (settled) return;
+            settled = true;
+            // A longer sequence is a DIFFERENT plan: it hashes differently, so
+            // any consent already given cannot carry over to it. Re-proposing
+            // rather than editing in place is the honest way to show that.
+            const longer: Plan = {
+              ...plan,
+              exposureSec: plan.exposureSec * 2,
+              assumptions: [
+                ...plan.assumptions,
+                "Exposure doubled on the operator's request; this is a new plan and needs its own approval",
+              ],
+            };
+            await ctx.thread.update(
+              ctx.message.ref,
+              <Message>
+                <Header>Superseded by a modified plan</Header>
+                <Context>{`${planHash} withdrawn - a modified plan hashes differently and needs its own approval`}</Context>
+              </Message>,
+            );
+            await postProposal(ctx.thread, recordPlan(store, longer));
+          }}
+        >
+          MODIFY
+        </Button>
+        <Button
           value="ignore"
           style="danger"
           onClick={async (ctx: any) => {
