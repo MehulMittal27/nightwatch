@@ -73,12 +73,21 @@ let store = Store.inMemory();
 /**
  * How long into the slew the revision lands.
  *
+ * Must be comfortably INSIDE the slew (SIMULATOR_STEP_MS below), because the
+ * consent re-check happens when the slew finishes. Landing it at the boundary
+ * lets the exposure through - which it did, once, and the thread then claimed
+ * no telescope action had been taken while a completed observation sat above
+ * it.
+ *
  * It has to happen INSIDE a live delivery: the thread handed to a handler stops
  * accepting operations the moment that delivery closes, so a timer firing after
  * the turn cannot post. Landing it mid-slew is also the sharpest version of the
  * thesis - consent dies between the slew and the shutter.
  */
-const REVISION_AFTER_SLEW_MS = 3_500;
+export const REVISION_AFTER_SLEW_MS = 1_200;
+
+/** Wall-clock per simulated step. The revision must land inside one of these. */
+export const SIMULATOR_STEP_MS = 3_000;
 
 /** The drill fires exactly one revision, however many times APPROVE is clicked. */
 let revisionLanded = false;
@@ -363,7 +372,7 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
 
   const run = executeApprovedPlan(
     store,
-    new SimulatedTelescope({ id: `sim-${plan.siteId}`, stepMs: 3000 }),
+    new SimulatedTelescope({ id: `sim-${plan.siteId}`, stepMs: SIMULATOR_STEP_MS }),
     plan,
     approval,
     render,
@@ -395,6 +404,25 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
   }
 }
 
+/**
+ * What actually happened to the telescope under this approval, read from the
+ * store at the moment of revocation. Never assert "nothing was commanded" -
+ * say what the record shows.
+ */
+function executionNote(approval: { eventId: string; planHash: string }): string {
+  const observation = store
+    .observationsFor(approval.eventId)
+    .find((o) => o.key.planHash === approval.planHash);
+  if (observation === undefined) return "No telescope action was taken on this approval. A fresh proposal follows.";
+  if (observation.state === "COMPLETE") {
+    return "This observation had already completed before the revision arrived. A fresh proposal follows.";
+  }
+  if (observation.state === "REJECTED" || observation.state === "FAILED") {
+    return "The telescope call was blocked; nothing was exposed. A fresh proposal follows.";
+  }
+  return "An observation is under way. Consent is re-checked before the shutter opens, so the exposure will not fire. A fresh proposal follows.";
+}
+
 /** Fire the revision, revoke what it invalidates, and propose the repoint. */
 async function landRevision(thread: any): Promise<void> {
   const beforeStatuses = statusesFor(NOTICE_V1);
@@ -418,7 +446,7 @@ async function landRevision(thread: any): Promise<void> {
         <Section>
           <Markdown>{`*Coverage lost*\n${loss}`}</Markdown>
         </Section>
-        <Context>No telescope action was taken on this approval. A fresh proposal follows.</Context>
+        <Context>{executionNote(approval)}</Context>
       </Message>,
     );
   }
