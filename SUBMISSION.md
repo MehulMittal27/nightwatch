@@ -2,7 +2,7 @@
 
 **Event:** Agents, Everywhere — AI Tinkerers global hackathon, 12 September 2026
 **Repository:** https://github.com/MehulMittal27/nightwatch
-**Video:** https://youtu.be/OsU66kmfuuI
+**Video:** https://youtu.be/YdIQkHb4CXU
 **Deployed URL:** Not deployed. The listener holds an outbound websocket and must run as a persistent worker; a `Dockerfile` is included and the image builds clean.
 **Social post:** <!-- URL -->
 

@@ -31,9 +31,9 @@ system is the thing that notices.
 
 ## Demo video
 
-**▶ [Watch the two-minute demo](https://youtu.be/OsU66kmfuuI)**
+**▶ [Watch the two-minute demo](https://youtu.be/YdIQkHb4CXU)**
 
-[![NightWatch demo](https://img.youtube.com/vi/OsU66kmfuuI/maxresdefault.jpg)](https://youtu.be/OsU66kmfuuI)
+[![NightWatch demo](https://img.youtube.com/vi/YdIQkHb4CXU/maxresdefault.jpg)](https://youtu.be/YdIQkHb4CXU)
 
 The video shows one complete run: a notice lands, three sites are compared, a human approves, the
 revision arrives mid-slew, the approval visibly voids with the coverage lost, and the repoint is
