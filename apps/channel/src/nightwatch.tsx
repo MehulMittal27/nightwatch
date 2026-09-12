@@ -50,11 +50,10 @@ import {
 } from "../../../src/nightwatch/domain/state.ts";
 import { SimulatedTelescope } from "../../../src/nightwatch/adapters/simulator.ts";
 import { executeApprovedPlan } from "../../../src/nightwatch/adapters/telescope.ts";
+import { computeSiteStatus } from "../../../src/nightwatch/science/visibility.ts";
 import {
   FIXTURE_PLAN,
   FIXTURE_PLAN_V2,
-  FIXTURE_SITE_STATUSES,
-  FIXTURE_SITE_STATUSES_V2,
   NOTICE_V1,
   NOTICE_V2,
   SITES,
@@ -88,6 +87,43 @@ const ACCENT = {
 
 const siteName = (id: string) => SITES.find((s) => s.id === id)?.name ?? id;
 
+/** Verdict order for the table: what a human should read first. */
+const VERDICT_RANK: Record<SiteStatus["recommendation"], number> = {
+  RECOMMENDED: 0,
+  WAIT: 1,
+  NO_WINDOW: 2,
+  UNKNOWN: 3,
+};
+
+/**
+ * Build the plan for whichever site the science actually recommends.
+ *
+ * The site is chosen by computation, never by a fixture and never by the model.
+ * If nothing is observable the caller gets `null` and there is nothing to
+ * propose - which is a real outcome, not a failure.
+ */
+function planFor(notice: Notice, statuses: SiteStatus[], base: Plan): Plan | null {
+  const best = statuses.find((s) => s.recommendation === "RECOMMENDED");
+  if (best === undefined) return null;
+  return {
+    ...base,
+    noticeVersion: notice.version,
+    siteId: best.siteId,
+    targetRaDeg: notice.raDeg,
+    targetDecDeg: notice.decDeg,
+  };
+}
+
+/**
+ * Real observability, computed by the science layer at the instant the notice
+ * was received. Nothing here is a fixture and nothing here is a model output.
+ */
+function statusesFor(notice: Notice): SiteStatus[] {
+  return SITES.map((site) => computeSiteStatus(site, notice, notice.receivedAt)).sort(
+    (a, b) => VERDICT_RANK[a.recommendation] - VERDICT_RANK[b.recommendation],
+  );
+}
+
 /** Slack truncates a wide table. The observatory name alone identifies the row. */
 const shortSite = (id: string) => siteName(id).split(",")[0] ?? id;
 
@@ -99,7 +135,7 @@ const utc = (d: Date) => `${d.toISOString().slice(11, 16)} UTC`;
 
 function windowText(status: SiteStatus): string {
   if (isUnknown(status.nextWindow)) return "unknown";
-  if (status.nextWindow === null) return "none tonight";
+  if (status.nextWindow === null) return "none in 24h";
   const w = status.nextWindow;
   const mins = Math.round((w.endUtc.getTime() - w.startUtc.getTime()) / 60_000);
   return `${utc(w.startUtc)}-${utc(w.endUtc)} (${mins} min)`;
@@ -137,7 +173,7 @@ function alertCard(notice: Notice, statuses: SiteStatus[]) {
         columns={[
           { header: "Site" },
           { header: "Alt now" },
-          { header: "Window tonight" },
+          { header: "Window (above limit)" },
           { header: "Verdict" },
         ]}
       >
@@ -353,13 +389,15 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
 
 /** Fire the revision, revoke what it invalidates, and propose the repoint. */
 async function landRevision(thread: any): Promise<void> {
-  const before = FIXTURE_SITE_STATUSES.find((s) => s.siteId === FIXTURE_PLAN.siteId);
+  const beforeStatuses = statusesFor(NOTICE_V1);
+  const afterStatuses = statusesFor(NOTICE_V2);
   const intake = receiveNotice(store, NOTICE_V2);
 
-  await thread.post(alertCard(NOTICE_V2, FIXTURE_SITE_STATUSES_V2));
+  await thread.post(alertCard(NOTICE_V2, afterStatuses));
 
   for (const approval of intake.revoked) {
-    const after = FIXTURE_SITE_STATUSES_V2.find((s) => s.siteId === approval.siteId);
+    const before = beforeStatuses.find((s) => s.siteId === approval.siteId);
+    const after = afterStatuses.find((s) => s.siteId === approval.siteId);
     const loss =
       before && after ? coverageLoss(before, after).summary : "Coverage change unknown.";
     await thread.post(
@@ -377,7 +415,17 @@ async function landRevision(thread: any): Promise<void> {
     );
   }
 
-  await postProposal(thread, recordPlan(store, FIXTURE_PLAN_V2));
+  const repoint = planFor(NOTICE_V2, afterStatuses, FIXTURE_PLAN_V2);
+  if (repoint === null) {
+    await thread.post(
+      <Message accent={ACCENT.voided}>
+        <Header>No repoint available</Header>
+        <Context>The revised position is not observable from any configured site.</Context>
+      </Message>,
+    );
+    return;
+  }
+  await postProposal(thread, recordPlan(store, repoint));
 }
 
 // ---------------------------------------------------------------------------
@@ -395,10 +443,20 @@ export const startDrill = defineChannelTool({
   parameters: z.object({}),
   async handler(_args, { thread }: any) {
     receiveNotice(store, NOTICE_V1);
-    const plan = recordPlan(store, FIXTURE_PLAN);
+    const statuses = statusesFor(NOTICE_V1);
+    await thread.post(alertCard(NOTICE_V1, statuses));
 
-    await thread.post(alertCard(NOTICE_V1, FIXTURE_SITE_STATUSES));
-    await postProposal(thread, plan);
+    const proposed = planFor(NOTICE_V1, statuses, FIXTURE_PLAN);
+    if (proposed === null) {
+      await thread.post(
+        <Message accent={ACCENT.voided}>
+          <Header>No site can observe this burst</Header>
+          <Context>Nothing to propose. No telescope action is possible from the configured sites.</Context>
+        </Message>,
+      );
+      return "No site can observe this burst, so no plan was proposed. Say that plainly and stop.";
+    }
+    await postProposal(thread, recordPlan(store, proposed));
 
     return "Drill started. The alert, the site table and the approval request are posted. Say nothing further - a revised notice will arrive on its own and the thread will update itself.";
   },

@@ -65,11 +65,16 @@ export interface Site {
 }
 
 export type SiteRecommendation =
-  /** Observable now, above the limit, Moon acceptable. */
+  /**
+   * Above the site's altitude limit now.
+   *
+   * Moon separation is computed and reported alongside, but no threshold is
+   * defined anywhere in the project, so it does not gate this verdict.
+   */
   | 'RECOMMENDED'
-  /** Rises above the limit later tonight. */
+  /** Clears the limit later within the lookahead. */
   | 'WAIT'
-  /** Never clears the limit tonight. */
+  /** Never clears the limit within the lookahead. */
   | 'NO_WINDOW'
   /** Inputs were missing or stale. Never auto-recommend from this. */
   | 'UNKNOWN';
@@ -95,7 +100,13 @@ export interface SiteStatus {
   altitudeNowDeg: Maybe<number>;
   /** Angular separation from the Moon. Small values degrade the observation. */
   moonSeparationDeg: Maybe<number>;
-  /** Next usable window tonight, or `null` when there is none at all. */
+  /**
+   * Next span above the site's altitude limit within the lookahead, or `null`
+   * when there is none.
+   *
+   * ALTITUDE ONLY. The science layer does not model the Sun, so this span can
+   * fall in the site's daytime. Do not present it as a night-time window.
+   */
   nextWindow: Maybe<ObservingWindow | null>;
   /**
    * UTC instant these numbers were computed for. Slack renders this beside
