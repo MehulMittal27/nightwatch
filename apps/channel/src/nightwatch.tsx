@@ -152,12 +152,29 @@ const VERDICT_RANK: Record<SiteStatus["recommendation"], number> = {
 function planFor(notice: Notice, statuses: SiteStatus[], base: Plan): Plan | null {
   const best = statuses.find((s) => s.recommendation === "RECOMMENDED");
   if (best === undefined) return null;
+
+  const site = SITES.find((x) => x.id === best.siteId);
+  const window =
+    best.nextWindow === "unknown" || best.nextWindow === null ? null : best.nextWindow;
+
+  // Everything stated here is derived from THIS notice and THIS site. Carrying
+  // a fixture's prose forward produced a card that cited a 2.85 deg error box
+  // directly beneath an alert reporting 9.23, and a start-by time that had
+  // already passed when the notice arrived.
   return {
     ...base,
     noticeVersion: notice.version,
     siteId: best.siteId,
     targetRaDeg: notice.raDeg,
     targetDecDeg: notice.decDeg,
+    startNoLaterThanUtc: window?.endUtc ?? notice.receivedAt,
+    assumptions: [
+      `Localisation error ${notice.errorRadiusDeg.toFixed(2)} deg; single pointing assumed to cover it`,
+      `${base.exposureCount} x ${base.exposureSec}s in ${base.filter} band on ${site?.instruments[0] ?? best.siteId}`,
+      window === null
+        ? "No computed window; start-by falls back to the notice arrival time"
+        : `Window closes ${utc(window.endUtc)}, peaking at ${window.maxAltitudeDeg.toFixed(1)} deg`,
+    ],
   };
 }
 
