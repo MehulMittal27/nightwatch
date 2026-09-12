@@ -55,12 +55,20 @@ import {
   FIXTURE_PLAN,
   FIXTURE_PLAN_V2,
   NOTICE_V1,
+  NOTICE_V1_DUPLICATE,
   NOTICE_V2,
   SITES,
 } from "../../../src/nightwatch/fixtures.ts";
 
-/** One store for the process. Slack holds no state; this does. */
-const store = Store.inMemory();
+/**
+ * One store for the process. Slack holds no state; this does.
+ *
+ * Reassigned when a drill starts so the demo can be run repeatedly without
+ * restarting the runtime - the dress rehearsal runs it twice back to back, and
+ * a second run against a store that already holds v2 would see its own opening
+ * notice as stale and do nothing.
+ */
+let store = Store.inMemory();
 
 /**
  * How long into the slew the revision lands.
@@ -442,9 +450,24 @@ export const startDrill = defineChannelTool({
     "Start the NightWatch gamma-ray burst drill in this thread. Replays a real GCN alert, reports observability across the three sites, and proposes an observation for human approval. Call this when asked to run the drill, start the demo, or replay an alert. Do not describe what will happen - call the tool and stop; it posts everything itself.",
   parameters: z.object({}),
   async handler(_args, { thread }: any) {
+    // Fresh run: a drill is a rehearsable unit, not a one-shot.
+    store = Store.inMemory();
+    revisionLanded = false;
+
     receiveNotice(store, NOTICE_V1);
     const statuses = statusesFor(NOTICE_V1);
     await thread.post(alertCard(NOTICE_V1, statuses));
+
+    // The same notice arrives twice, as GCN notices genuinely do. It must
+    // update the existing thread and create nothing.
+    const duplicate = receiveNotice(store, NOTICE_V1_DUPLICATE);
+    await thread.post(
+      <Message>
+        <Context>
+          {`Duplicate of notice v${NOTICE_V1.version} received and ${duplicate.outcome === "duplicate" ? "ignored" : "NOT ignored - bug"}: existing thread retained, no second request created.`}
+        </Context>
+      </Message>,
+    );
 
     const proposed = planFor(NOTICE_V1, statuses, FIXTURE_PLAN);
     if (proposed === null) {
