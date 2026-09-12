@@ -228,7 +228,7 @@ export function coverageLoss(before: SiteStatus, after: SiteStatus): CoverageLos
     return {
       lostMinutes: lost,
       stillObservable: false,
-      summary: `Site loses its entire window (${Math.round(beforeMin)} min); target is no longer observable from here tonight.`,
+      summary: `Site loses its entire window (${Math.round(beforeMin)} min); the target no longer clears this site's altitude limit at all.`,
     };
   }
   if (lost === 0) {

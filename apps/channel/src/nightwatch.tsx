@@ -355,7 +355,7 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
 
   const run = executeApprovedPlan(
     store,
-    new SimulatedTelescope({ stepMs: 3000 }),
+    new SimulatedTelescope({ id: `sim-${plan.siteId}`, stepMs: 3000 }),
     plan,
     approval,
     render,
