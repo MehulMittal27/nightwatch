@@ -367,6 +367,7 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
         Consent recorded. It is re-checked immediately before every telescope call, and
         again after the slew.
       </Context>
+      <Context>SIMULATED - no real telescope is ever commanded.</Context>
     </Message>,
   );
 
@@ -429,6 +430,7 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
           Consent was re-checked after the slew and was no longer valid. The shutter never
           opened.
         </Context>
+        <Context>SIMULATED - no real telescope was ever in the loop.</Context>
       </Message>,
     );
   }
@@ -488,6 +490,7 @@ async function landRevision(thread: any): Promise<Plan | null> {
           <Markdown>{`*Coverage lost*\n${loss}`}</Markdown>
         </Section>
         <Context>{executionNote(approval)}</Context>
+        <Context>SIMULATED - no real telescope is ever commanded.</Context>
       </Message>,
     );
   }
@@ -544,6 +547,7 @@ export const startDrill = defineChannelTool({
         <Message accent={ACCENT.voided}>
           <Header>No site can observe this burst</Header>
           <Context>Nothing to propose. No telescope action is possible from the configured sites.</Context>
+          <Context>SIMULATED - no real telescope is ever commanded.</Context>
         </Message>,
       );
       return "No site can observe this burst, so no plan was proposed. Say that plainly and stop.";
