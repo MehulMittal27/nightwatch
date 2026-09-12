@@ -408,10 +408,11 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
   // The revised notice arrives on its own while the mount is still moving.
   // Nobody types anything; this is awaited here only so the delivery that
   // carries it is still open when it posts.
+  let repoint: Plan | null = null;
   if (!revisionLanded && plan.noticeVersion === NOTICE_V1.version) {
     revisionLanded = true;
     await sleep(REVISION_AFTER_SLEW_MS);
-    await landRevision(ctx.thread).catch(() => {});
+    repoint = await landRevision(ctx.thread).catch(() => null);
   }
 
   const blocked = await run;
@@ -431,6 +432,9 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
       </Message>,
     );
   }
+
+  // Only now offer the replacement - after the reader has seen the old call stopped.
+  if (repoint !== null) await postProposal(ctx.thread, repoint);
 }
 
 /**
@@ -452,8 +456,16 @@ function executionNote(approval: { eventId: string; planHash: string }): string 
   return "An observation is under way. Consent is re-checked before the shutter opens, so the exposure will not fire. A fresh proposal follows.";
 }
 
-/** Fire the revision, revoke what it invalidates, and propose the repoint. */
-async function landRevision(thread: any): Promise<void> {
+/**
+ * Fire the revision and revoke what it invalidates.
+ *
+ * Deliberately does NOT post the repoint: the caller does that after the
+ * blocked card has landed, so the thread reads in the order the story happens -
+ * voided, then blocked, then the new proposal. Posting it here put a fresh
+ * APPROVE button on screen before the reader had been told the previous call
+ * was stopped.
+ */
+async function landRevision(thread: any): Promise<Plan | null> {
   const beforeStatuses = statusesFor(NOTICE_V1);
   const afterStatuses = statusesFor(NOTICE_V2);
   const intake = receiveNotice(store, NOTICE_V2);
@@ -488,9 +500,9 @@ async function landRevision(thread: any): Promise<void> {
         <Context>The revised position is not observable from any configured site.</Context>
       </Message>,
     );
-    return;
+    return null;
   }
-  await postProposal(thread, recordPlan(store, repoint));
+  return recordPlan(store, repoint);
 }
 
 // ---------------------------------------------------------------------------
