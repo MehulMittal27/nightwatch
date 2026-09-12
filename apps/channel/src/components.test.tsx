@@ -11,7 +11,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderToIR } from "@copilotkit/channels";
-import { IncidentCard, Timeline } from "./components";
+import { AlertCard, SiteTableCard } from "./components";
 
 const ctx = { platform: "slack" as const, signal: new AbortController().signal };
 
@@ -20,81 +20,97 @@ async function render(node: unknown): Promise<string> {
   return JSON.stringify(renderToIR((await node) as never));
 }
 
-const baseIncident = {
-  severity: "sev2" as const,
-  headline: "Checkout latency above 4s",
-  impact: "~12% of checkouts, EU region",
-  started: "02:14 UTC",
-  known: [] as string[],
-  trying: [] as string[],
+const baseAlert = {
+  eventId: "GRB260912A",
+  version: 1,
+  raDeg: 213.4917,
+  decDeg: 18.7342,
+  errorRadiusDeg: 2.85,
+  receivedAtUtc: "2026-09-12T21:14:03Z",
 };
 
-describe("incident_card", () => {
-  it("colours the rail by severity, so the channel can triage by glance", async () => {
-    const sev1 = await render(IncidentCard.render({ ...baseIncident, severity: "sev1" }, ctx));
-    const resolved = await render(IncidentCard.render({ ...baseIncident, severity: "resolved" }, ctx));
-
-    assert.ok(sev1.includes("#C4145F"), "sev1 should use the attention accent");
-    assert.ok(resolved.includes("#2E7D5B"), "resolved should use the good accent");
-    assert.notEqual(sev1, resolved);
+describe("alert_card", () => {
+  it("carries the event id and notice version in the header", async () => {
+    const out = await render(AlertCard.render(baseAlert, ctx));
+    assert.ok(out.includes("GRB260912A"));
+    assert.ok(out.includes("v1"));
   });
 
-  it("labels the severity in words, not just colour", async () => {
-    // Colour alone fails anyone colour-blind and every screen reader.
-    const out = await render(IncidentCard.render({ ...baseIncident, severity: "sev1" }, ctx));
-    assert.ok(out.includes("SEV1"));
-    assert.ok(out.includes("customer-facing"));
+  it("renders position, error radius, and received time exactly as given, never rounded to a different value", async () => {
+    const out = await render(AlertCard.render(baseAlert, ctx));
+    assert.ok(out.includes("213.4917"));
+    assert.ok(out.includes("18.7342"));
+    assert.ok(out.includes("2.85"));
+    assert.ok(out.includes("2026-09-12T21:14:03Z"));
   });
 
-  it("omits the owner field entirely when the thread has not said who is driving", async () => {
-    const without = await render(IncidentCard.render(baseIncident, ctx));
-    const with_ = await render(IncidentCard.render({ ...baseIncident, owner: "priya" }, ctx));
-
-    assert.ok(!without.includes("Driving"), "no owner should mean no Driving field");
-    assert.ok(with_.includes("Driving"));
-    assert.ok(with_.includes("priya"));
-  });
-
-  it("omits the known/trying sections when empty rather than drawing empty headings", async () => {
-    const empty = await render(IncidentCard.render(baseIncident, ctx));
-    assert.ok(!empty.includes("What we know"));
-    assert.ok(!empty.includes("Being tried"));
-
-    const filled = await render(
-      IncidentCard.render(
-        { ...baseIncident, known: ["Rollback did not help"], trying: ["Draining the queue"] },
-        ctx,
-      ),
-    );
-    assert.ok(filled.includes("What we know"));
-    assert.ok(filled.includes("Rollback did not help"));
-    assert.ok(filled.includes("Being tried"));
-  });
-
-  it("always carries impact and start time — the two things a late joiner needs", async () => {
-    const out = await render(IncidentCard.render(baseIncident, ctx));
-    assert.ok(out.includes("~12% of checkouts, EU region"));
-    assert.ok(out.includes("02:14 UTC"));
+  it("distinguishes two versions of the same event", async () => {
+    const v1 = await render(AlertCard.render(baseAlert, ctx));
+    const v2 = await render(AlertCard.render({ ...baseAlert, version: 2, raDeg: 216.2083 }, ctx));
+    assert.notEqual(v1, v2);
+    assert.ok(v2.includes("v2"));
   });
 });
 
-describe("timeline", () => {
-  it("renders every event and counts them in the footer", async () => {
-    const events = [
-      { at: "02:14", what: "Alerts fired", who: "pagerduty" },
-      { at: "02:19", what: "Rolled back web", who: "priya" },
-      { at: "02:31", what: "Latency still high" },
-    ];
-    const out = await render(Timeline.render({ title: "Timeline", events }, ctx));
+const baseRows = [
+  {
+    siteName: "Teide Observatory, Tenerife",
+    recommendation: "RECOMMENDED" as const,
+    altitudeNowDeg: 54.2,
+    moonSeparationDeg: 97.4,
+    nextWindow: "20:48–01:36 UTC",
+    notes: ["Above limit now", "Moon well separated"],
+  },
+  {
+    siteName: "Vainu Bappu Observatory, Kavalur",
+    recommendation: "WAIT" as const,
+    altitudeNowDeg: -12.6,
+    moonSeparationDeg: 96.9,
+    nextWindow: "23:52–02:14 UTC",
+    notes: [] as string[],
+  },
+  {
+    siteName: "Kitt Peak National Observatory, Arizona",
+    recommendation: "NO_WINDOW" as const,
+    altitudeNowDeg: -41.3,
+    moonSeparationDeg: 98.1,
+    nextWindow: "none tonight",
+    notes: [] as string[],
+  },
+];
 
-    for (const event of events) assert.ok(out.includes(event.what), `missing "${event.what}"`);
-    assert.ok(out.includes("3 event(s)"));
+describe("site_table_card", () => {
+  it("renders one row per site with its recommendation label", async () => {
+    const out = await render(SiteTableCard.render({ eventId: "GRB260912A", rows: baseRows }, ctx));
+    for (const row of baseRows) assert.ok(out.includes(row.siteName), `missing "${row.siteName}"`);
+    assert.ok(out.includes("RECOMMENDED"));
+    assert.ok(out.includes("WAIT"));
+    assert.ok(out.includes("NO WINDOW"));
   });
 
-  it("fills the who column with a dash rather than leaving a hole", async () => {
+  it("prints 'unknown' rather than a fabricated number when altitude or Moon separation is unknown", async () => {
     const out = await render(
-      Timeline.render({ title: "T", events: [{ at: "02:31", what: "no owner" }] }, ctx),
+      SiteTableCard.render(
+        {
+          eventId: "GRB260912A",
+          rows: [{ ...baseRows[0], altitudeNowDeg: "unknown", moonSeparationDeg: "unknown" }],
+        },
+        ctx,
+      ),
     );
-    assert.ok(out.includes("—"));
+    assert.ok(out.includes("unknown"));
+  });
+
+  it("surfaces per-site notes but omits the notes section entirely when every row has none", async () => {
+    const withNotes = await render(SiteTableCard.render({ eventId: "GRB260912A", rows: baseRows }, ctx));
+    assert.ok(withNotes.includes("Above limit now"));
+
+    const withoutNotes = await render(
+      SiteTableCard.render(
+        { eventId: "GRB260912A", rows: baseRows.map((r) => ({ ...r, notes: [] })) },
+        ctx,
+      ),
+    );
+    assert.ok(!withoutNotes.includes("Above limit now"));
   });
 });

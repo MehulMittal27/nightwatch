@@ -2,14 +2,15 @@ import { createChannel } from "@copilotkit/channels";
 import { isSearchConfigured, isWorkplaceConfigured, WORKPLACE_CONTEXT } from "agent-core";
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
-import { IncidentCard, Timeline, welcomeMessage } from "./components";
-import { proposeAction, readThread, searchTheWeb } from "./tools";
+import { AlertCard, SiteTableCard, welcomeMessage } from "./components";
+import { getSiteStatus, proposeObservationPlan, readThread, searchTheWeb } from "./tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
 const tools = [
   readThread,
-  proposeAction,
+  getSiteStatus,
+  proposeObservationPlan,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];
 
@@ -26,15 +27,16 @@ export const channel = createChannel({
 
   agent: makeChannelAgent,
   tools,
-  components: [IncidentCard, Timeline],
+  components: [AlertCard, SiteTableCard],
 
   // Injected into the agent's prompt on every run.
   context: [
-    
     {
       description: "Rendering",
       value:
-        "You can draw native UI by calling incident_card or timeline. Prefer them over prose whenever the answer has structure.",
+        "Call get_site_status first for any question about the current notice or which site to use — never estimate a position, altitude, or window yourself. " +
+        "Then draw alert_card and site_table_card with those exact numbers. " +
+        "Prefer them over prose whenever the answer has structure. No number in this channel is ever produced by you — only copied from a tool result.",
     },
     ...(isWorkplaceConfigured()
       ? [{ description: "Workplace", value: WORKPLACE_CONTEXT }]

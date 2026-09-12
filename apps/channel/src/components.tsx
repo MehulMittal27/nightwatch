@@ -1,9 +1,10 @@
 /**
- * Agent-rendered components for the on-call agent.
+ * Agent-rendered components for the NightWatch on-call agent.
  *
  * `defineChannelComponent` turns a component into a tool the agent can call to
- * draw UI itself. During an incident, a native card is easier to scan than a
- * paragraph, but everyone reads a card.
+ * draw UI itself. Every numeric field here must be copied verbatim from a data
+ * tool's result (see tools.tsx) — the agent renders these cards, it never
+ * computes the numbers that go in them.
  *
  * One tree renders as Slack Block Kit, Teams Adaptive Cards, and Discord
  * components. A surface that cannot render a node skips it rather than failing.
@@ -26,97 +27,108 @@ import {
 } from "@copilotkit/channels";
 import { z } from "zod";
 
-/** Severity drives the colour rail, so the channel can triage by glance. */
-const SEVERITY = {
-  sev1: { accent: "#C4145F", label: "SEV1 · customer-facing" },
-  sev2: { accent: "#8A5C10", label: "SEV2 · degraded" },
-  sev3: { accent: "#5B6478", label: "SEV3 · internal" },
-  resolved: { accent: "#2E7D5B", label: "RESOLVED" },
-} as const;
-
 /**
- * The state of the incident, as one glanceable card.
- *
- * Deliberately has no "what happened" prose field. The thread is the narrative;
- * this is the summary a person joining at minute 40 needs.
+ * A GCN transient notice. A revision of the same event arrives as a new
+ * version with the same event id — this card is deliberately silent on
+ * "what changed" prose; that belongs in the thread, not invented here.
  */
-export const IncidentCard = defineChannelComponent({
-  name: "incident_card",
+export const AlertCard = defineChannelComponent({
+  name: "alert_card",
   description:
-    "Draw the current state of the incident as a card: severity, what is affected, what is known, and what is being tried. Call this once you have read the thread, and call it again when the picture changes. Prefer it over describing the incident in prose.",
+    "Render a GCN transient alert: event id, notice version, sky position, error radius, and when it was received. Call this once you have the notice from a data tool result. Copy every number exactly as given — never estimate, round, or recompute one.",
   parameters: z.object({
-    severity: z.enum(["sev1", "sev2", "sev3", "resolved"]),
-    headline: z.string().describe("What is broken, in under ten words."),
-    impact: z.string().describe("Who or what is affected, concretely."),
-    started: z.string().describe("When it started, as stated in the thread. 'unknown' is a valid answer."),
-    known: z.array(z.string()).max(4).default([]).describe("What the thread has established."),
-    trying: z.array(z.string()).max(3).default([]).describe("What is currently being attempted."),
-    owner: z.string().optional().describe("Who is driving, if the thread says."),
+    eventId: z.string().describe("e.g. GRB260912A"),
+    version: z.number().int().describe("Notice version. A higher version voids any approval bound to a lower one."),
+    raDeg: z.number(),
+    decDeg: z.number(),
+    errorRadiusDeg: z.number(),
+    receivedAtUtc: z.string().describe("ISO-8601 UTC instant, exactly as given by the data tool."),
   }),
-  render({ severity, headline, impact, started, known, trying, owner }) {
-    const sev = SEVERITY[severity];
+  render({ eventId, version, raDeg, decDeg, errorRadiusDeg, receivedAtUtc }) {
     return (
-      <Message accent={sev.accent}>
-        <Header>{headline}</Header>
-        <Context>{sev.label}</Context>
+      <Message accent="#C4145F">
+        <Header>{`${eventId} — notice v${version}`}</Header>
         <Fields>
-          <Field label="Impact">{impact}</Field>
-          <Field label="Started">{started}</Field>
-          {owner && <Field label="Driving">{owner}</Field>}
+          <Field label="RA">{`${raDeg.toFixed(4)}°`}</Field>
+          <Field label="Dec">{`${decDeg.toFixed(4)}°`}</Field>
+          <Field label="Error radius">{`${errorRadiusDeg.toFixed(2)}°`}</Field>
+          <Field label="Received">{`${receivedAtUtc} UTC`}</Field>
         </Fields>
-        {known.length > 0 && (
-          <Section>
-            <Markdown>{`*What we know*\n${known.map((k) => `• ${k}`).join("\n")}`}</Markdown>
-          </Section>
-        )}
-        {trying.length > 0 && (
-          <Section>
-            <Markdown>{`*Being tried*\n${trying.map((t) => `• ${t}`).join("\n")}`}</Markdown>
-          </Section>
-        )}
+        <Context>Position from the notice payload. No number here is model-generated.</Context>
       </Message>
     );
   },
 });
 
+const RECOMMENDATION_LABEL: Record<string, string> = {
+  RECOMMENDED: "✅ RECOMMENDED",
+  WAIT: "🕒 WAIT",
+  NO_WINDOW: "🚫 NO WINDOW",
+  UNKNOWN: "❓ UNKNOWN",
+};
+
 /**
- * The incident timeline. Handover and the postmortem both run on this, which is
- * why it is worth keeping in the thread rather than someone's notes app.
+ * Per-site observability comparison. This is the card the whole approval
+ * decision hangs on, so every cell must trace back to astronomy-engine via a
+ * data tool — never to the model's own estimate.
  */
-export const Timeline = defineChannelComponent({
-  name: "timeline",
+export const SiteTableCard = defineChannelComponent({
+  name: "site_table_card",
   description:
-    "Draw an ordered timeline of what happened when. Call this when there are three or more events worth ordering — it is what on-call handover and the postmortem are written from.",
+    "Render the per-site observability table for a notice: recommendation, current altitude, Moon separation, and next usable window. Call this with the exact rows a data tool returned, in the same order. Never invent, round, or recompute a row's numbers.",
   parameters: z.object({
-    title: z.string().default("Timeline"),
-    events: z
+    eventId: z.string(),
+    rows: z
       .array(
         z.object({
-          at: z.string().describe("Time as the thread states it, e.g. '02:14' or '~20m ago'."),
-          what: z.string().describe("What happened, in one line."),
-          who: z.string().optional(),
+          siteName: z.string(),
+          recommendation: z.enum(["RECOMMENDED", "WAIT", "NO_WINDOW", "UNKNOWN"]),
+          altitudeNowDeg: z.union([z.number(), z.literal("unknown")]),
+          moonSeparationDeg: z.union([z.number(), z.literal("unknown")]),
+          nextWindow: z
+            .string()
+            .describe("Next usable window as free text, e.g. '23:52–02:14 UTC', or 'none tonight'."),
+          notes: z.array(z.string()).max(4).default([]),
         }),
       )
       .min(1)
-      .max(12),
+      .max(6),
   }),
-  render({ title, events }) {
+  render({ eventId, rows }) {
     return (
       <Message>
-        <Header>{title}</Header>
+        <Header>{`Site comparison — ${eventId}`}</Header>
         <Table
-          columns={[{ header: "When" }, { header: "What" }, { header: "Who" }]}
+          columns={[
+            { header: "Site" },
+            { header: "Status" },
+            { header: "Alt now" },
+            { header: "Moon sep" },
+            { header: "Next window" },
+          ]}
         >
-          {events.map((event) => (
+          {rows.map((r) => (
             <Row>
-              <Cell>{event.at}</Cell>
-              <Cell>{event.what}</Cell>
-              <Cell>{event.who ?? "—"}</Cell>
+              <Cell>{r.siteName}</Cell>
+              <Cell>{RECOMMENDATION_LABEL[r.recommendation] ?? r.recommendation}</Cell>
+              <Cell>{r.altitudeNowDeg === "unknown" ? "unknown" : `${r.altitudeNowDeg.toFixed(1)}°`}</Cell>
+              <Cell>{r.moonSeparationDeg === "unknown" ? "unknown" : `${r.moonSeparationDeg.toFixed(1)}°`}</Cell>
+              <Cell>{r.nextWindow}</Cell>
             </Row>
           ))}
         </Table>
+        {rows.some((r) => r.notes.length > 0) && (
+          <Section>
+            <Markdown>
+              {rows
+                .filter((r) => r.notes.length > 0)
+                .map((r) => `*${r.siteName}*: ${r.notes.join("; ")}`)
+                .join("\n")}
+            </Markdown>
+          </Section>
+        )}
         <Divider />
-        <Context>{`${events.length} event(s) · newest last`}</Context>
+        <Context>Computed by astronomy-engine. No number here comes from a language model.</Context>
       </Message>
     );
   },
@@ -129,32 +141,19 @@ export const Timeline = defineChannelComponent({
 export function welcomeMessage(platform: string) {
   return (
     <Message accent="#C4145F">
-      <Header>On-call assistant, in the thread</Header>
+      <Header>NightWatch, in the thread</Header>
       <Section>
         <Markdown>
-          {"When something breaks, @-mention me. I read what has already been said in this " +
+          {"When a transient notice lands, I post the alert and a site-by-site observability table, computed, never guessed. " +
+            "Nothing gets commanded to a telescope without an explicit approval click from a human in this " +
             platform +
-            " thread first — you should never have to re-explain an outage to me."}
+            " thread."}
         </Markdown>
       </Section>
       <Fields>
-        <Field label="I will">Summarise, keep a timeline, look things up</Field>
-        <Field label="I won't">Touch production without a click</Field>
+        <Field label="I will">Post alerts, compare sites, propose a plan, wait for a click</Field>
+        <Field label="I won't">Invent a number, or execute a plan without approval</Field>
       </Fields>
-      <Actions>
-        <Button
-          value="catchup"
-          style="primary"
-          onClick={async ({ thread }) => {
-            await thread.runAgent({
-              prompt:
-                "Read this thread and bring me up to speed on the incident. Draw the incident card.",
-            });
-          }}
-        >
-          Catch me up
-        </Button>
-      </Actions>
     </Message>
   );
 }

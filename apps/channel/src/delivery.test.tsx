@@ -6,7 +6,7 @@ import { from, type Observable } from "rxjs";
 import { createChannel } from "@copilotkit/channels";
 import { startChannelsWithGatewayControl } from "@copilotkit/channels-intelligence";
 import type { searchWeb } from "agent-core";
-import { IncidentCard } from "./components";
+import { AlertCard } from "./components";
 import { createSearchTool } from "./search";
 import { ManagedGateway, preparedDelivery } from "./testing/managed-gateway";
 
@@ -26,16 +26,16 @@ class ResearchAgent extends AbstractAgent {
   }
   run(input: RunAgentInput): Observable<BaseEvent> {
     const calls = [
-      { name: "search_web", args: { query: "retry storm", results: 1 } },
+      { name: "search_web", args: { query: "GRB260912A", results: 1 } },
       {
-        name: "incident_card",
+        name: "alert_card",
         args: {
-          severity: "sev2",
-          headline: "Retries are amplifying latency",
-          impact: "Checkout requests time out",
-          started: "09:03 UTC",
-          known: ["Connection-pool wait increased"],
-          trying: ["Investigating retry policy"],
+          eventId: "GRB260912A",
+          version: 1,
+          raDeg: 213.4917,
+          decDeg: 18.7342,
+          errorRadiusDeg: 2.85,
+          receivedAtUtc: "2026-09-12T21:14:03Z",
         },
       },
     ];
@@ -81,7 +81,7 @@ async function runResearch(search: typeof searchWeb, withIncident = true) {
     identifyUser: "platform",
     showToolStatus: true,
     agent: () => new ResearchAgent(withIncident),
-    components: [IncidentCard],
+    components: [AlertCard],
     tools: [createSearchTool(search)],
   });
   let failure: unknown;
@@ -159,7 +159,7 @@ it(
     );
     assert.equal(cards.length, 2, JSON.stringify({ payloads, agentMessages }));
     assert.match(JSON.stringify(cards[0]), /Search sources/);
-    assert.match(JSON.stringify(cards[1]), /Retries are amplifying latency/);
+    assert.match(JSON.stringify(cards[1]), /GRB260912A/);
     const statuses = payloads.filter(
       (payload) => payload.kind === "slack.thread.status",
     );

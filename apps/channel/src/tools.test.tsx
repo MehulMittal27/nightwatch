@@ -8,7 +8,7 @@ import {
   concreteThread,
 } from "./testing/managed-gateway";
 import { z } from "zod";
-import { proposeAction, readThread } from "./tools";
+import { getSiteStatus, proposeObservationPlan, readThread } from "./tools";
 
 /** Only the methods these tools call; the rest of Thread is irrelevant here. */
 const stubContext = (thread: Record<string, unknown>) =>
@@ -22,7 +22,7 @@ const stubContext = (thread: Record<string, unknown>) =>
 describe("read_thread", () => {
   it("returns the messages when the surface exposes history", async () => {
     const messages = [
-      { id: "1", role: "user", content: "checkout is timing out" },
+      { id: "1", role: "user", content: "notice just landed" },
     ];
     const result = await readThread.handler(
       {},
@@ -35,7 +35,7 @@ describe("read_thread", () => {
     // getMessages() is capability-gated: it returns [] rather than throwing on
     // surfaces that cannot read history. Handing that [] straight to the model
     // reads as "the thread is empty", and the agent then answers confidently
-    // about an incident it knows nothing about.
+    // about a notice it knows nothing about.
     const result = await readThread.handler(
       {},
       stubContext({ getMessages: mock.fn(async () => []) }),
@@ -45,36 +45,53 @@ describe("read_thread", () => {
   });
 });
 
-describe("propose_action", () => {
+describe("get_site_status", () => {
+  it("returns the fixture notice and site rows verbatim, never a computed or estimated number", async () => {
+    const result = (await getSiteStatus.handler({}, stubContext({}))) as {
+      eventId: string;
+      version: number;
+      sites: Array<{ siteName: string; recommendation: string }>;
+    };
+    assert.equal(result.eventId, "GRB260912A");
+    assert.equal(result.version, 1);
+    assert.ok(result.sites.length > 0);
+    assert.ok(result.sites.some((s) => s.recommendation === "RECOMMENDED"));
+    assert.ok(result.sites.some((s) => s.siteName.includes("Teide")));
+  });
+});
+
+describe("propose_observation_plan", () => {
   const args = {
-    action: "Roll back web to the previous release",
-    blastRadius: "All web traffic for ~90 seconds during the swap",
-    reversible: true,
+    eventId: "GRB260912A",
+    noticeVersion: 1,
+    siteName: "Teide Observatory, Tenerife",
+    exposureSec: 120,
+    exposureCount: 5,
+    filter: "r",
+    startNoLaterThanUtc: "2026-09-13T01:36:00Z",
+    assumptions: ["Localisation fits the CAMELOT-2 field in a single pointing"],
   };
 
-  for (const choice of ["Approve", "Hold"]) {
+  for (const choice of ["Approve", "Modify", "Ignore"]) {
     it(
       `posts a real managed card and reports ${choice} on a later delivery`,
       { timeout: 10_000 },
       async () => {
         const gateway = new ManagedGateway();
         const channel = createChannel({
-          name: "support",
+          name: "nightwatch",
           identifyUser: "platform",
         });
         let result: unknown;
         channel.onMessage(async ({ thread }) => {
           try {
             assert.equal(thread.supportsBlockingChoice, false);
-            result = await proposeAction.handler(
-              { ...args, reversible: false },
-              {
-                thread: concreteThread(thread),
-                user: { id: "u1", name: "Priya" },
-                actor: { id: "a1", kind: "human" },
-                platform: "slack",
-              },
-            );
+            result = await proposeObservationPlan.handler(args, {
+              thread: concreteThread(thread),
+              user: { id: "u1", name: "Priya" },
+              actor: { id: "a1", kind: "human" },
+              platform: "slack",
+            });
           } catch (error) {
             result = String(error);
             throw error;
@@ -83,7 +100,7 @@ describe("propose_action", () => {
         const runCanonical = mock.fn();
         const handle = await startChannelsWithGatewayControl([channel], {
           session: gateway,
-          scope: { projectId: 1, channelName: "support" },
+          scope: { projectId: 1, channelName: "nightwatch" },
           runtimeInstanceId: "rti_proposal",
           runCanonical: async (args) => {
             // Neither the proposal handler nor the click resumes an agent.
@@ -95,7 +112,7 @@ describe("propose_action", () => {
         try {
           const proposalDelivery = preparedDelivery("proposal", "slack", {
             kind: "text",
-            text: "Propose a rollback",
+            text: "Propose the observation plan",
           });
           await gateway.deliver(proposalDelivery);
           assert.match(
@@ -105,7 +122,7 @@ describe("propose_action", () => {
           );
           assert.match(
             String(result),
-            /Do not take the action, call write tools, or offer a workaround/,
+            /Do not execute the plan, command a telescope, or call write tools/,
           );
           const payloads = gateway.packets.map(({ payload }) => payload);
           const card = payloads.find(
@@ -115,10 +132,13 @@ describe("propose_action", () => {
             card,
             "managed adapter must post the proposal before ending the delivery",
           );
-          assert.match(JSON.stringify(card), /NOT easily reversible/);
-          assert.match(JSON.stringify(card), /All web traffic/);
+          assert.match(JSON.stringify(card), /GRB260912A/);
+          assert.match(JSON.stringify(card), /Teide Observatory, Tenerife/);
+          assert.match(JSON.stringify(card), /5×120s/);
+          assert.match(JSON.stringify(card), /Localisation fits the CAMELOT-2 field/);
           assert.match(JSON.stringify(card), /Approve/);
-          assert.match(JSON.stringify(card), /Hold/);
+          assert.match(JSON.stringify(card), /Modify/);
+          assert.match(JSON.stringify(card), /Ignore/);
           // Read the real Slack action ID generated by Channels, then deliver it
           // through the gateway in a separate (nonblocking) interaction turn.
           const blocks = z
@@ -163,23 +183,23 @@ describe("propose_action", () => {
             update,
             "click must replace the proposal with the decision",
           );
-          assert.match(JSON.stringify(update), /No action was executed/);
-          assert.match(
-            JSON.stringify(update),
+          const expectedLabel =
             choice === "Approve"
-              ? /Approved proposal/
-              : /Do not take the action or offer a workaround/,
-          );
-          // The SDK keeps both action IDs registered after replacing the card.
-          // Replay the first choice, then deliver a stale opposite choice: neither
-          // may overwrite the first recorded decision (including an initial Hold).
-          const oppositeButton = buttons.find(
+              ? /APPROVED \(stub\)/
+              : choice === "Modify"
+                ? /MODIFICATION REQUESTED \(stub\)/
+                : /IGNORED/;
+          assert.match(JSON.stringify(update), expectedLabel);
+          // The SDK keeps every action ID registered after replacing the card.
+          // Replay the first choice, then deliver a stale different choice: none
+          // may overwrite the first recorded decision.
+          const otherButton = buttons.find(
             (element) => element.text.text !== choice,
           );
-          assert.ok(oppositeButton);
+          assert.ok(otherButton);
           for (const [index, actionId] of [
             button.action_id,
-            oppositeButton.action_id,
+            otherButton.action_id,
           ].entries()) {
             const replayDelivery = preparedDelivery(
               `proposal_replay_${index}`,
