@@ -89,11 +89,25 @@ above it, and everyone saw it.
 | **Exa** | Evidence lookup on the burst, auto-registered by the template |
 | **Ambiguous** | The follow-up circular is composed from the event store and written to the workspace as a document - but only behind the same approval gate as the telescope. The model has no workspace tools at all |
 
-**Cut during the event, and why.** Ambiguous and Auth0 were both scoped as post-gate stretch work
-with hard caps. Slack app provisioning overran by roughly 50 minutes — a hand-made Slack app was
-missing the scopes, events and interactivity endpoint that the CLI-generated manifest carries — so
-we invoked our own rule that the approval gate outranks every integration, and cut both rather than
-risk the core. We would rather submit one thing that works than four that half-do.
+**Cut during the event, and why.** Auth0 was scoped as post-gate stretch work with a hard cap.
+Slack app provisioning overran by roughly 50 minutes - a hand-made Slack app was missing the
+scopes, events and interactivity endpoint that the CLI-generated manifest carries - so we invoked
+our own rule that the approval gate outranks every integration, and cut it rather than risk the
+core. Ambiguous was cut for the same reason and then reinstated once the gate was proven, on the
+condition that it went in behind a real boundary rather than as raw model access.
+
+**What that condition meant in practice.** Ambiguous exposes create, edit, share and
+permanent-delete tools. Registering them for the model would have been an ungated external write -
+the exact failure this project argues against, in the build that argues against it. So workplace
+MCP is disabled for the model entirely, and the workspace is reachable only through one
+approval-gated tool.
+
+**And one honest note about that boundary.** Our first version reported a successful publish while
+the workspace stayed empty: MCP returns a tool failure as a *successful* JSON-RPC response carrying
+`isError`, and the client ignored it. We caught it by checking the workspace rather than trusting
+the thread, and the client now refuses to confirm a write that returns no document id. A system
+that claims an action it did not take is the failure mode this project exists to prevent; we
+committed it, found it, and fixed it.
 
 ## Evidence for the judging criteria
 
