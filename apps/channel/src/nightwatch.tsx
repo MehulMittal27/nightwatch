@@ -51,27 +51,14 @@ import {
 import { SimulatedTelescope } from "../../../src/nightwatch/adapters/simulator.ts";
 import { executeApprovedPlan } from "../../../src/nightwatch/adapters/telescope.ts";
 import { computeSiteStatus } from "../../../src/nightwatch/science/visibility.ts";
-import { loadReplayNotices } from "../../../src/nightwatch/replay/replay.ts";
 import {
   FIXTURE_PLAN,
   FIXTURE_PLAN_V2,
+  NOTICE_V1,
+  NOTICE_V1_DUPLICATE,
+  NOTICE_V2,
   SITES,
 } from "../../../src/nightwatch/fixtures.ts";
-
-/**
- * The real thing: NASA GCN notices for Fermi/GBM trigger bn240812094, its
- * flight localisation and the ground revision that moves the burst 167 degrees
- * across the celestial equator. Loaded from the payloads verbatim - the
- * hand-written fixtures are now only used for exposure defaults and tests.
- */
-const [NOTICE_V1, NOTICE_V2] = loadReplayNotices();
-
-if (NOTICE_V1 === undefined || NOTICE_V2 === undefined) {
-  throw new Error("replay notices are missing: expected a v1 and its revision");
-}
-
-/** The same notice arriving twice, as GCN notices genuinely do. */
-const NOTICE_V1_DUPLICATE = { ...NOTICE_V1, receivedAt: new Date(NOTICE_V1.receivedAt.getTime() + 6_000) };
 
 /**
  * Demo safety net.
@@ -152,29 +139,12 @@ const VERDICT_RANK: Record<SiteStatus["recommendation"], number> = {
 function planFor(notice: Notice, statuses: SiteStatus[], base: Plan): Plan | null {
   const best = statuses.find((s) => s.recommendation === "RECOMMENDED");
   if (best === undefined) return null;
-
-  const site = SITES.find((x) => x.id === best.siteId);
-  const window =
-    best.nextWindow === "unknown" || best.nextWindow === null ? null : best.nextWindow;
-
-  // Everything stated here is derived from THIS notice and THIS site. Carrying
-  // a fixture's prose forward produced a card that cited a 2.85 deg error box
-  // directly beneath an alert reporting 9.23, and a start-by time that had
-  // already passed when the notice arrived.
   return {
     ...base,
     noticeVersion: notice.version,
     siteId: best.siteId,
     targetRaDeg: notice.raDeg,
     targetDecDeg: notice.decDeg,
-    startNoLaterThanUtc: window?.endUtc ?? notice.receivedAt,
-    assumptions: [
-      `Localisation error ${notice.errorRadiusDeg.toFixed(2)} deg; single pointing assumed to cover it`,
-      `${base.exposureCount} x ${base.exposureSec}s in ${base.filter} band on ${site?.instruments[0] ?? best.siteId}`,
-      window === null
-        ? "No computed window; start-by falls back to the notice arrival time"
-        : `Window closes ${utc(window.endUtc)}, peaking at ${window.maxAltitudeDeg.toFixed(1)} deg`,
-    ],
   };
 }
 
@@ -397,7 +367,6 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
         Consent recorded. It is re-checked immediately before every telescope call, and
         again after the slew.
       </Context>
-      <Context>SIMULATED - no real telescope is ever commanded.</Context>
     </Message>,
   );
 
@@ -460,7 +429,6 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
           Consent was re-checked after the slew and was no longer valid. The shutter never
           opened.
         </Context>
-        <Context>SIMULATED - no real telescope was ever in the loop.</Context>
       </Message>,
     );
   }
@@ -520,7 +488,6 @@ async function landRevision(thread: any): Promise<Plan | null> {
           <Markdown>{`*Coverage lost*\n${loss}`}</Markdown>
         </Section>
         <Context>{executionNote(approval)}</Context>
-        <Context>SIMULATED - no real telescope is ever commanded.</Context>
       </Message>,
     );
   }
@@ -577,7 +544,6 @@ export const startDrill = defineChannelTool({
         <Message accent={ACCENT.voided}>
           <Header>No site can observe this burst</Header>
           <Context>Nothing to propose. No telescope action is possible from the configured sites.</Context>
-          <Context>SIMULATED - no real telescope is ever commanded.</Context>
         </Message>,
       );
       return "No site can observe this burst, so no plan was proposed. Say that plainly and stop.";
