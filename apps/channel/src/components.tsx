@@ -135,6 +135,41 @@ export const SiteTableCard = defineChannelComponent({
 });
 
 /**
+ * A previously approved observation plan, voided by a notice revision.
+ * Deliberately has no Actions/Button at all — there is nothing left to click,
+ * and rendering a disabled-looking button is worse than rendering none.
+ */
+export const RevocationCard = defineChannelComponent({
+  name: "revocation_card",
+  description:
+    "Render that a previously approved observation plan has been voided by a notice revision. Call this the moment a notice you already proposed a plan for gets a new version — never leave a voided approval looking active in the thread. There is no action to attach; the prior approval no longer authorises anything.",
+  parameters: z.object({
+    eventId: z.string(),
+    noticeVersion: z.number().int().describe("The new, revoking notice version."),
+    siteName: z.string(),
+    reason: z.string().describe("Why the approval was voided, e.g. 'Notice revised to v2 — position moved 3.1°.'"),
+    coverageLoss: z
+      .string()
+      .describe("What is lost by the void, in plain text, e.g. 'Exposure not yet started; no time lost.'"),
+  }),
+  render({ eventId, noticeVersion, siteName, reason, coverageLoss }) {
+    return (
+      <Message accent="#8A5C10">
+        <Header>APPROVAL VOIDED</Header>
+        <Context>{`${eventId} → ${siteName}, notice v${noticeVersion}`}</Context>
+        <Fields>
+          <Field label="Reason">{reason}</Field>
+          <Field label="Coverage loss">{coverageLoss}</Field>
+        </Fields>
+        <Section>
+          <Markdown>*No action available. The prior approval no longer authorises anything.*</Markdown>
+        </Section>
+      </Message>
+    );
+  },
+});
+
+/**
  * The welcome message. A bot that says nothing when invited looks broken; one
  * that says what it will do on its own gets used.
  */

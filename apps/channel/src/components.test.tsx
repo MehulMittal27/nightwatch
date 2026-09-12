@@ -11,7 +11,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderToIR } from "@copilotkit/channels";
-import { AlertCard, SiteTableCard } from "./components";
+import { AlertCard, RevocationCard, SiteTableCard } from "./components";
 
 const ctx = { platform: "slack" as const, signal: new AbortController().signal };
 
@@ -112,5 +112,31 @@ describe("site_table_card", () => {
       ),
     );
     assert.ok(!withoutNotes.includes("Above limit now"));
+  });
+});
+
+const baseRevocation = {
+  eventId: "GRB260912A",
+  noticeVersion: 2,
+  siteName: "Teide Observatory, Tenerife",
+  reason: "Notice revised to v2 — position moved 3.1°",
+  coverageLoss: "Exposure not yet started; no time lost.",
+};
+
+describe("revocation_card", () => {
+  it("titles itself APPROVAL VOIDED and carries the reason and coverage loss", async () => {
+    const out = await render(RevocationCard.render(baseRevocation, ctx));
+    assert.ok(out.includes("APPROVAL VOIDED"));
+    assert.ok(out.includes(baseRevocation.reason));
+    assert.ok(out.includes(baseRevocation.coverageLoss));
+    assert.ok(out.includes("GRB260912A"));
+    assert.ok(out.includes("v2"));
+  });
+
+  it("renders no clickable action — a voided approval has nothing left to press", async () => {
+    const out = await render(RevocationCard.render(baseRevocation, ctx));
+    assert.ok(!out.includes("Approve"));
+    assert.ok(!out.includes("Modify"));
+    assert.ok(!out.includes("Ignore"));
   });
 });

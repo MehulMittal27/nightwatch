@@ -2,7 +2,7 @@ import { createChannel } from "@copilotkit/channels";
 import { isSearchConfigured, isWorkplaceConfigured, WORKPLACE_CONTEXT } from "agent-core";
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
-import { AlertCard, SiteTableCard, welcomeMessage } from "./components";
+import { AlertCard, RevocationCard, SiteTableCard, welcomeMessage } from "./components";
 import { getSiteStatus, proposeObservationPlan, readThread, searchTheWeb } from "./tools";
 
 // Tools are registered only when their credential is present, so the agent is
@@ -27,7 +27,7 @@ export const channel = createChannel({
 
   agent: makeChannelAgent,
   tools,
-  components: [AlertCard, SiteTableCard],
+  components: [AlertCard, SiteTableCard, RevocationCard],
 
   // Injected into the agent's prompt on every run.
   context: [
@@ -36,7 +36,8 @@ export const channel = createChannel({
       value:
         "Call get_site_status first for any question about the current notice or which site to use — never estimate a position, altitude, or window yourself. " +
         "Then draw alert_card and site_table_card with those exact numbers. " +
-        "Prefer them over prose whenever the answer has structure. No number in this channel is ever produced by you — only copied from a tool result.",
+        "If a notice you already proposed a plan for gets a new version, draw revocation_card so the voided approval is never left looking active. " +
+        "Prefer cards over prose whenever the answer has structure. No number in this channel is ever produced by you — only copied from a tool result.",
     },
     ...(isWorkplaceConfigured()
       ? [{ description: "Workplace", value: WORKPLACE_CONTEXT }]
