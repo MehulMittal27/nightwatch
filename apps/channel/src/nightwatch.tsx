@@ -63,8 +63,20 @@ import {
 /** One store for the process. Slack holds no state; this does. */
 const store = Store.inMemory();
 
-/** How long after the alert the revision lands. Long enough to approve first. */
-const REVISION_DELAY_MS = 30_000;
+/**
+ * How long into the slew the revision lands.
+ *
+ * It has to happen INSIDE a live delivery: the thread handed to a handler stops
+ * accepting operations the moment that delivery closes, so a timer firing after
+ * the turn cannot post. Landing it mid-slew is also the sharpest version of the
+ * thesis - consent dies between the slew and the shutter.
+ */
+const REVISION_AFTER_SLEW_MS = 3_500;
+
+/** The drill fires exactly one revision, however many times APPROVE is clicked. */
+let revisionLanded = false;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const ACCENT = {
   alert: "#B23A48",
@@ -277,14 +289,25 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
     pending.catch(() => {});
   };
 
+  const run = executeApprovedPlan(
+    store,
+    new SimulatedTelescope({ stepMs: 3000 }),
+    plan,
+    approval,
+    render,
+  );
+
+  // The revised notice arrives on its own while the mount is still moving.
+  // Nobody types anything; this is awaited here only so the delivery that
+  // carries it is still open when it posts.
+  if (!revisionLanded && plan.noticeVersion === NOTICE_V1.version) {
+    revisionLanded = true;
+    await sleep(REVISION_AFTER_SLEW_MS);
+    await landRevision(ctx.thread).catch(() => {});
+  }
+
   try {
-    await executeApprovedPlan(
-      store,
-      new SimulatedTelescope({ stepMs: 2500 }),
-      plan,
-      approval,
-      render,
-    );
+    await run;
     await pending;
   } catch (err) {
     await pending.catch(() => {});
@@ -348,12 +371,6 @@ export const startDrill = defineChannelTool({
 
     await thread.post(alertCard(NOTICE_V1, FIXTURE_SITE_STATUSES));
     await postProposal(thread, plan);
-
-    // The revision lands on its own, mid-observation if the human approves
-    // promptly. Nobody types anything.
-    setTimeout(() => {
-      void landRevision(thread);
-    }, REVISION_DELAY_MS);
 
     return "Drill started. The alert, the site table and the approval request are posted. Say nothing further - a revised notice will arrive on its own and the thread will update itself.";
   },
