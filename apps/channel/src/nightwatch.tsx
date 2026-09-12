@@ -330,8 +330,8 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
       <Header>Approved</Header>
       <Context>{`${siteName(plan.siteId)} - plan ${planHash} - v${plan.noticeVersion}`}</Context>
       <Context>
-        Consent recorded. It is re-checked immediately before every telescope call, and
-        again after the slew.
+        Consent recorded. It is re-checked immediately before every SIMULATED telescope call,
+        and again after the slew.
       </Context>
     </Message>,
   );
@@ -377,11 +377,12 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
     await pending.catch(() => {});
     await ctx.thread.post(
       <Message accent={ACCENT.voided}>
-        <Header>Telescope call blocked</Header>
+        <Header>SIMULATED telescope call blocked</Header>
         <Section>
           <Markdown>{err instanceof Error ? err.message : String(err)}</Markdown>
         </Section>
         <Context>The approval was no longer valid. Nothing was commanded.</Context>
+        <Context>SIMULATED - no real telescope was ever in the loop.</Context>
       </Message>,
     );
   }
@@ -410,7 +411,7 @@ async function landRevision(thread: any): Promise<void> {
         <Section>
           <Markdown>{`*Coverage lost*\n${loss}`}</Markdown>
         </Section>
-        <Context>No telescope action was taken on this approval. A fresh proposal follows.</Context>
+        <Context>No SIMULATED telescope action was taken on this approval. A fresh proposal follows.</Context>
       </Message>,
     );
   }
@@ -451,7 +452,7 @@ export const startDrill = defineChannelTool({
       await thread.post(
         <Message accent={ACCENT.voided}>
           <Header>No site can observe this burst</Header>
-          <Context>Nothing to propose. No telescope action is possible from the configured sites.</Context>
+          <Context>Nothing to propose. No SIMULATED telescope action is possible from the configured sites.</Context>
         </Message>,
       );
       return "No site can observe this burst, so no plan was proposed. Say that plainly and stop.";
