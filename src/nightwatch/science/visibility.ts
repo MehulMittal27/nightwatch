@@ -115,6 +115,12 @@ function moonSeparationDeg(
  * Find the first contiguous above-limit span on a five-minute grid covering
  * the next 24 hours. The grid boundaries are intentionally conservative:
  * no interpolation is used to invent a more precise crossing time.
+ *
+ * Both `startUtc` and `endUtc` are grid samples at which the target was
+ * actually measured above `site.altitudeLimitDeg`. The next sample after
+ * `endUtc` is the one that fell below the limit, so the reported span never
+ * claims time the target is not observable. A span the grid only ever caught
+ * once is reported with `endUtc === startUtc` rather than rounded outwards.
  */
 function nextWindow(
   site: Site,
@@ -123,6 +129,7 @@ function nextWindow(
   at: Date,
 ): ObservingWindow | null {
   let startUtc: Date | undefined;
+  let lastAboveLimitAt: Date | undefined;
   let maxAltitudeDeg = Number.NEGATIVE_INFINITY;
 
   for (let index = 0; index <= GRID_SAMPLE_COUNT; index += 1) {
@@ -131,26 +138,27 @@ function nextWindow(
 
     if (altitudeDeg >= site.altitudeLimitDeg) {
       startUtc ??= sampleAt;
+      lastAboveLimitAt = sampleAt;
       maxAltitudeDeg = Math.max(maxAltitudeDeg, altitudeDeg);
       continue;
     }
 
-    if (startUtc) {
+    if (startUtc && lastAboveLimitAt) {
       return {
         startUtc,
-        endUtc: sampleAt,
+        endUtc: lastAboveLimitAt,
         maxAltitudeDeg,
       };
     }
   }
 
-  if (!startUtc) {
+  if (!startUtc || !lastAboveLimitAt) {
     return null;
   }
 
   return {
     startUtc,
-    endUtc: new Date(at.getTime() + LOOKAHEAD_MS),
+    endUtc: lastAboveLimitAt,
     maxAltitudeDeg,
   };
 }
