@@ -74,36 +74,86 @@ rather than estimate. A number in a model response is a bug, not a degradation.
 
 ## Architecture
 
-```
-GCN notice (replayed)
-        │
-        ▼
-  receiveNotice()  ── new? duplicate? revision? late?
-        │                     │
-        │                     └─ revision ─► revoke every approval bound to the old version
-        ▼
-  computeSiteStatus()   astronomy-engine · pure · no I/O · no model
-        │
-        ▼
-  Slack cards  ◄── rendered in code from the store, never from the model
-        │
-        ▼
-  human clicks APPROVE ──► recordApproval()  binds (event, version, site, planHash)
-        │
-        ▼
-  executeApprovedPlan()   ◄── THE WRITE BOUNDARY
-        │  ├─ isValidFor()  immediately before the slew
-        │  ├─ isValidFor()  again after the slew, before the shutter
-        │  └─ idempotent on (event, version, telescope, planHash)
-        ▼
-  SimulatedTelescope   slew → expose → complete
+Two gates, drawn in red. Everything a human decides passes through one of them.
+
+```mermaid
+flowchart TB
+    subgraph slack["Slack - one thread per burst"]
+        THREAD["Alert card · site table · proposal<br/>revocation card · result"]
+        HUMAN(["Human clicks<br/>APPROVE / MODIFY / IGNORE"])
+    end
+
+    subgraph runtime["Channel runtime - CopilotKit Channels + Intelligence"]
+        AGENT["Agent · OpenAI gpt-5.6-sol<br/><b>prose only, never a number</b><br/>workplace MCP disabled"]
+        TOOLS["start_grb_drill · nightwatch_status<br/>draft_circular · read_thread · search"]
+    end
+
+    subgraph domain["Domain - the source of truth"]
+        INTAKE["receiveNotice()<br/>new · duplicate · revision · late"]
+        STORE[("Event store<br/>+ audit log")]
+        CONSENT["Approval bound to<br/>(event, version, site, planHash)"]
+    end
+
+    subgraph science["Science - pure, no I/O, no model"]
+        VIS["computeSiteStatus()<br/>astronomy-engine"]
+    end
+
+    GCN[/"NASA GCN notices<br/>v1 and its revision"/]
+    EXA[/"Exa<br/>web evidence"/]
+
+    GATE1{{"WRITE BOUNDARY<br/>isValidFor() before the slew<br/>and again before the shutter"}}
+    GATE2{{"WRITE BOUNDARY<br/>notice version re-read<br/>at the moment of the click"}}
+
+    SCOPE["SimulatedTelescope<br/>slew → expose → complete"]
+    AMB[("Ambiguous workspace<br/>follow-up circular")]
+
+    GCN --> INTAKE
+    INTAKE --> STORE
+    INTAKE -- "revision" --> REVOKE["revoke every approval<br/>bound to the old version"]
+    REVOKE --> STORE
+    STORE --> VIS
+    VIS --> THREAD
+    STORE --> THREAD
+    AGENT <--> TOOLS
+    TOOLS --> STORE
+    TOOLS --> THREAD
+    EXA --> AGENT
+    THREAD --> HUMAN
+    HUMAN -- "approves an observation" --> CONSENT
+    HUMAN -- "approves the circular" --> GATE2
+    CONSENT --> GATE1
+    STORE -. "re-read, never cached" .-> GATE1
+    STORE -. "re-read, never cached" .-> GATE2
+    GATE1 -- "valid" --> SCOPE
+    GATE1 -- "revoked" --> BLOCKED["exposure never fires<br/>thread says why"]
+    GATE2 -- "valid" --> AMB
+    GATE2 -- "superseded" --> WITHHELD["circular withheld"]
+    SCOPE --> STORE
+    AMB --> STORE
+
+    classDef gate fill:#C4145F,stroke:#8a0e42,color:#fff,font-weight:bold
+    classDef blocked fill:#3a1020,stroke:#C4145F,color:#fff
+    classDef data fill:#123,stroke:#4a7,color:#cfe
+    class GATE1,GATE2 gate
+    class BLOCKED,WITHHELD,REVOKE blocked
+    class GCN,EXA,AMB,STORE data
 ```
 
-- `src/nightwatch/domain/` — models, state machine, event store, audit log
-- `src/nightwatch/science/` — `astronomy-engine` visibility. Pure: no I/O, no model calls
-- `src/nightwatch/adapters/` — telescope interface and the deterministic simulator
-- `src/nightwatch/replay/notices/` — real NASA GCN notices, a v1 and its ground-position revision
-- `apps/channel/src/nightwatch.tsx` — the Slack surface
+**Read it this way:** the model sits in the top box and holds no numbers and no workspace tools.
+Every figure comes from the science layer or the store. Every external action — moving the telescope,
+writing the circular — leaves through a red gate, and each gate re-reads consent from the store at
+the instant of the call rather than trusting the click that authorised it.
+
+**Where the code lives**
+
+| | |
+|---|---|
+| `src/nightwatch/domain/` | models, state machine, event store, audit log |
+| `src/nightwatch/science/` | `astronomy-engine` visibility. Pure: no I/O, no model calls |
+| `src/nightwatch/adapters/` | telescope interface, deterministic simulator, the first gate |
+| `src/nightwatch/replay/` | real NASA GCN payloads and their loader |
+| `apps/channel/src/nightwatch.tsx` | the Slack surface and every card |
+| `apps/channel/src/ambiguous.ts` | the workspace MCP client, behind the second gate |
 
 ## The write-boundary question, and how we answer it
 
