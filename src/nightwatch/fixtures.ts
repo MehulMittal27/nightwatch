@@ -160,3 +160,68 @@ export const FIXTURE_PLAN: Plan = {
     'No target-of-opportunity conflict assumed on the IAC80 queue',
   ],
 };
+
+// ---------------------------------------------------------------------------
+// After the revision - stand-ins until science/visibility.ts lands
+// ---------------------------------------------------------------------------
+
+/**
+ * Observability of the REVISED position (dec -67.9).
+ *
+ * Consistent with culmination geometry for these three sites: both northern
+ * stations lose the target outright, and only the southern site can reach it.
+ * Replaced wholesale by computeSiteStatus at the science swap.
+ */
+const COMPUTED_AT_V2 = new Date('2026-09-12T21:27:43Z');
+
+export const FIXTURE_SITE_STATUSES_V2: SiteStatus[] = [
+  {
+    siteId: 'sso',
+    recommendation: 'RECOMMENDED',
+    altitudeNowDeg: 47.9,
+    moonSeparationDeg: 88.3,
+    nextWindow: {
+      startUtc: new Date('2026-09-12T21:10:00Z'),
+      endUtc: new Date('2026-09-13T04:22:00Z'),
+      maxAltitudeDeg: 53.4,
+    },
+    computedAt: COMPUTED_AT_V2,
+    notes: ['Above limit now', 'Southern sky - only site that can reach the revised position'],
+  },
+  {
+    siteId: 'teide',
+    recommendation: 'NO_WINDOW',
+    altitudeNowDeg: -38.4,
+    moonSeparationDeg: 88.1,
+    nextWindow: null,
+    computedAt: COMPUTED_AT_V2,
+    notes: ['Revised position never rises from this latitude'],
+  },
+  {
+    siteId: 'kittpeak',
+    recommendation: 'NO_WINDOW',
+    altitudeNowDeg: -44.7,
+    moonSeparationDeg: 87.9,
+    nextWindow: null,
+    computedAt: COMPUTED_AT_V2,
+    notes: ['Revised position never rises from this latitude'],
+  },
+];
+
+/** The repoint proposed after the revision voids the original consent. */
+export const FIXTURE_PLAN_V2: Plan = {
+  eventId: 'GRB260912A',
+  noticeVersion: 2,
+  siteId: 'sso',
+  targetRaDeg: 216.2083,
+  targetDecDeg: 17.2156,
+  exposureSec: 180,
+  filter: 'r',
+  exposureCount: 4,
+  startNoLaterThanUtc: new Date('2026-09-13T04:22:00Z'),
+  assumptions: [
+    'Refined 0.19 deg error circle fits well inside the WiFeS field',
+    'Longer 4x180s sequence compensates for the lower elevation at Siding Spring',
+    'Northern coverage is gone; this is the only remaining station',
+  ],
+};

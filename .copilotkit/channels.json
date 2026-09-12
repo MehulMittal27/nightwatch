@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "channels": [
+    {
+      "name": "nightwatch",
+      "displayName": "nightwatch",
+      "providers": {
+        "slack": {
+          "env": {
+            "botToken": "INTELLIGENCE_CHANNEL_NIGHTWATCH_SLACK_BOT_TOKEN",
+            "signingSecret": "INTELLIGENCE_CHANNEL_NIGHTWATCH_SLACK_SIGNING_SECRET"
+          }
+        }
+      }
+    },
+    {
+      "name": "nightwatch-grb",
+      "displayName": "NightWatch GRB",
+      "providers": {
+        "slack": {
+          "env": {
+            "botToken": "INTELLIGENCE_CHANNEL_NIGHTWATCH_GRB_SLACK_BOT_TOKEN",
+            "signingSecret": "INTELLIGENCE_CHANNEL_NIGHTWATCH_GRB_SLACK_SIGNING_SECRET"
+          }
+        }
+      }
+    }
+  ]
+}

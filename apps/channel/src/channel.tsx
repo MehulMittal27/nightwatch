@@ -2,14 +2,15 @@ import { createChannel } from "@copilotkit/channels";
 import { isSearchConfigured, isWorkplaceConfigured, WORKPLACE_CONTEXT } from "agent-core";
 import { makeChannelAgent } from "./agent";
 import { required } from "./env";
-import { IncidentCard, Timeline, welcomeMessage } from "./components";
-import { proposeAction, readThread, searchTheWeb } from "./tools";
+import { readStatus, startDrill, welcomeMessage } from "./nightwatch";
+import { readThread, searchTheWeb } from "./tools";
 
 // Tools are registered only when their credential is present, so the agent is
 // never handed a tool that will fail when it calls it.
 const tools = [
+  startDrill,
+  readStatus,
   readThread,
-  proposeAction,
   ...(isSearchConfigured() ? [searchTheWeb] : []),
 ];
 
@@ -26,15 +27,15 @@ export const channel = createChannel({
 
   agent: makeChannelAgent,
   tools,
-  components: [IncidentCard, Timeline],
+  components: [],
 
   // Injected into the agent's prompt on every run.
   context: [
     
     {
-      description: "Rendering",
+      description: "Numbers",
       value:
-        "You can draw native UI by calling incident_card or timeline. Prefer them over prose whenever the answer has structure.",
+        "You NEVER produce a number. Coordinates, altitudes, Moon separations, window times, exposure times and SNR all come from tools, which render their own cards. If you do not have a number from a tool, say 'unknown'. Never estimate, interpolate or recall one.",
     },
     ...(isWorkplaceConfigured()
       ? [{ description: "Workplace", value: WORKPLACE_CONTEXT }]
@@ -42,7 +43,7 @@ export const channel = createChannel({
     {
       description: "Surface",
       value:
-        "This is a chat thread in a channel people are actively working in. Assume others are reading and that some joined late.",
+        "This is a Slack thread coordinating follow-up of a gamma-ray burst. One thread per burst. Every telescope action is SIMULATED and must be described as such. You never command a telescope; a human clicks APPROVE and the system re-checks that consent immediately before acting.",
     },
   ],
 
