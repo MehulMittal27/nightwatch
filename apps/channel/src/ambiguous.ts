@@ -63,8 +63,19 @@ async function callTool(call: McpCall): Promise<unknown> {
   const res = await rpc("tools/call", { name: call.name, arguments: call.args }, sessionId);
   if (!res.ok) throw new Error(`Ambiguous ${call.name} failed: HTTP ${res.status}`);
 
-  const parsed = parseSse(await res.text()) as { error?: { message?: string }; result?: unknown };
+  const parsed = parseSse(await res.text()) as {
+    error?: { message?: string };
+    result?: { isError?: boolean; content?: { type: string; text?: string }[] };
+  };
   if (parsed.error) throw new Error(`Ambiguous ${call.name} failed: ${parsed.error.message}`);
+
+  // An MCP tool failure comes back as a SUCCESSFUL JSON-RPC response carrying
+  // isError. Ignoring it reports a write that never happened - which is the
+  // exact failure this project exists to prevent, so it is checked loudly.
+  if (parsed.result?.isError) {
+    const detail = parsed.result.content?.find((c) => c.type === "text")?.text ?? "no detail";
+    throw new Error(`Ambiguous ${call.name} rejected the call: ${detail}`);
+  }
   return parsed.result;
 }
 
@@ -84,20 +95,26 @@ export async function createCircularDocument(
   title: string,
   body: string,
 ): Promise<CreatedDocument> {
+  // `type` is one of doc | sheet | slide. "document" is rejected.
   const result = (await callTool({
     name: "create_document",
-    args: { title, type: "document", content: body },
-  })) as { content?: { type: string; text?: string }[] };
+    args: { title, type: "doc", content: body },
+  })) as { content?: { type: string; text?: string }[]; structuredContent?: { id?: string } };
 
   // MCP tool results come back as content blocks; the document id is inside the
   // JSON payload the server returns as text.
-  const text = result.content?.find((c) => c.type === "text")?.text ?? "";
-  let id = "unknown";
-  try {
-    const doc = JSON.parse(text) as { id?: string; document?: { id?: string } };
-    id = doc.id ?? doc.document?.id ?? "unknown";
-  } catch {
-    // Leave id as unknown rather than inventing one.
+  let id = result.structuredContent?.id ?? "";
+  if (id === "") {
+    const text = result.content?.find((c) => c.type === "text")?.text ?? "";
+    try {
+      const doc = JSON.parse(text) as { id?: string; document?: { id?: string } };
+      id = doc.id ?? doc.document?.id ?? "";
+    } catch {
+      // Leave it empty rather than inventing one.
+    }
+  }
+  if (id === "") {
+    throw new Error("Ambiguous returned no document id; treating the write as unconfirmed");
   }
   return { id, title };
 }
