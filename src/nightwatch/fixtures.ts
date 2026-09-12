@@ -71,21 +71,22 @@ export const NOTICE_V1: Notice = {
 };
 
 /**
- * The revision. Refined localisation moves the target ~3.1 deg and shrinks the
- * error radius by an order of magnitude. Any approval bound to v1 is now void.
+ * The revision. The refined localisation crosses the celestial equator and
+ * shrinks the error radius by an order of magnitude, so every northern site
+ * loses the target outright. Any approval bound to v1 is now void.
  */
 export const NOTICE_V2: Notice = {
   eventId: 'GRB260912A',
   version: 2,
-  raDeg: 216.2083,
-  decDeg: 17.2156,
+  raDeg: 90.5600,
+  decDeg: -67.8700,
   errorRadiusDeg: 0.19,
   receivedAt: new Date('2026-09-12T21:27:41Z'),
   raw: {
     notice_type: 'FERMI_GBM_GND_POS',
     trigger_num: 779412873,
-    ra: 216.2083,
-    dec: 17.2156,
+    ra: 90.56,
+    dec: -67.87,
     error_radius: 0.19,
   },
 };
@@ -213,8 +214,8 @@ export const FIXTURE_PLAN_V2: Plan = {
   eventId: 'GRB260912A',
   noticeVersion: 2,
   siteId: 'sso',
-  targetRaDeg: 216.2083,
-  targetDecDeg: 17.2156,
+  targetRaDeg: 90.5600,
+  targetDecDeg: -67.8700,
   exposureSec: 180,
   filter: 'r',
   exposureCount: 4,
