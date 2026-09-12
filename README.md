@@ -1,150 +1,241 @@
 <div align="center">
 
-# Agents, Everywhere Hackathon Starter Kit
+# NightWatch
 
-![Agents, Everywhere hackathon — OpenAI, CopilotKit, OpenRouter, Exa, Auth0, and Ambiguous AI](assets/banner.png)
+**An agent that revokes its own approval.**
 
-**Build an agent that belongs where people already work, talk, and live.**
-
-[Overview](#overview) · [Get started](#get-started) · [Templates](#templates) · [Coding agent](#coding-agent) · [Resources](#resources)
+A transient-astronomy follow-up coordinator that lives in a Slack thread — and when a revised
+alert invalidates the plan a human already approved, it voids that consent in front of you and
+proposes a repoint.
 
 </div>
 
-## Overview
+---
 
-Build for **[Agents, Everywhere: Bots, Channels, & More](https://aitinkerers.org/hackathons/global/agents-everywhere)**, the AI Tinkerers global hackathon on **September 12–13, 2026**. Choose your city on the event page for its local schedule. Put an agent inside a conversation, an app, a phone, or a physical environment. Make the context of that place essential to what it can do.
+## The thesis
 
-This kit gives you three runnable templates, files to hand to your coding agent, and sponsor setup notes. Pick a user, a problem, and one complete interaction. You can use any stack; you do not need every sponsor or every surface.
+Most "human-in-the-loop" agents treat approval as a checkpoint: the human clicks, the agent
+proceeds. That is fine while the world holds still. It does not hold still.
 
-Your project and its core functionality must be created during the event. Existing libraries, templates, and starter code are allowed; describe what you reuse and what you build. Read [the rules](hackathon-rules.md), then follow your city's participant portal for the current deadline and judging criteria.
+A gamma-ray burst alert arrives with a localisation good to a few degrees. Minutes later a revised
+notice moves the position — sometimes across the sky. Any approval given against the first notice is
+now consent for an observation of empty sky, and the telescope does not know that.
 
-## Get started
+**NightWatch binds consent to exactly one `(event, notice version, site, plan hash)` and re-checks
+it immediately before every telescope call — including after the slew has already started.** When a
+revision lands, standing approvals are revoked at the moment the notice is taken in, the thread
+says so, and the exposure never fires.
 
-Use Node.js 22+, then clone and install the kit:
+The interesting property is not that it asks permission. It is that **permission expires**, and the
+system is the thing that notices.
+
+## Demo video
+
+<!-- EMBED: two-minute video -->
+
+The video shows one complete run: a notice lands, three sites are compared, a human approves, the
+revision arrives mid-slew, the approval visibly voids with the coverage lost, and the repoint is
+approved and completes.
+
+## What you are looking at
+
+| | |
+|---|---|
+| **Surface** | Slack, one thread per burst, via CopilotKit Channels |
+| **Deployed URL** | <!-- URL --> |
+| **Repository** | https://github.com/MehulMittal27/nightwatch |
+| **Telescope** | **SIMULATED.** Every card says so. No real observatory is contacted. |
+
+## Consent tiers
+
+Every action is classified before it is written. **If a tier cannot be decided, it is tier 3.**
+
+| Tier | Applies to | Behaviour |
+|---|---|---|
+| 1 · Silent | Recalculation, state refresh, re-evaluation | Acts, posts a compact status |
+| 2 · Announce + veto | Re-evaluating scheduling, extending an exposure, standing a site down | Announces; silence proceeds; Stop cancels |
+| 3 · **Block** | **Any telescope action** | Explicit human approval. **Never proceeds on a timeout.** |
+
+There is no auto-approval, no confidence threshold, and no timeout-to-proceed anywhere in the
+system.
+
+## The trust split
+
+| Decided by code | Decided by a language model | Decided by a human |
+|---|---|---|
+| Every coordinate, altitude, Moon separation, observing window, exposure time and SNR | The prose in the thread | Whether the telescope moves |
+| Which site is recommended | Which tool to call | Whether a revised plan is worth approving |
+| Whether consent is still valid | — | — |
+
+**No number in this system is produced by a language model.** The cards are rendered in code
+directly from the event store; the agent is told, in its own context, that it must say `unknown`
+rather than estimate. A number in a model response is a bug, not a degradation.
+
+## Architecture
+
+```
+GCN notice (replayed)
+        │
+        ▼
+  receiveNotice()  ── new? duplicate? revision? late?
+        │                     │
+        │                     └─ revision ─► revoke every approval bound to the old version
+        ▼
+  computeSiteStatus()   astronomy-engine · pure · no I/O · no model
+        │
+        ▼
+  Slack cards  ◄── rendered in code from the store, never from the model
+        │
+        ▼
+  human clicks APPROVE ──► recordApproval()  binds (event, version, site, planHash)
+        │
+        ▼
+  executeApprovedPlan()   ◄── THE WRITE BOUNDARY
+        │  ├─ isValidFor()  immediately before the slew
+        │  ├─ isValidFor()  again after the slew, before the shutter
+        │  └─ idempotent on (event, version, telescope, planHash)
+        ▼
+  SimulatedTelescope   slew → expose → complete
+```
+
+- `src/nightwatch/domain/` — models, state machine, event store, audit log
+- `src/nightwatch/science/` — `astronomy-engine` visibility. Pure: no I/O, no model calls
+- `src/nightwatch/adapters/` — telescope interface and the deterministic simulator
+- `src/nightwatch/replay/notices/` — real NASA GCN notices, a v1 and its ground-position revision
+- `apps/channel/src/nightwatch.tsx` — the Slack surface
+
+## The write-boundary question, and how we answer it
+
+The starter kit's sponsor guide is explicit:
+
+> *"Approval prompts and cards guide behavior but do not enforce a gate around every MCP tool. For
+> your own app, enforce required authorization at the write boundary."*
+>
+> — [`using-sponsor-tools.md`](using-sponsor-tools.md)
+
+**That gate is this project.** `executeApprovedPlan` in
+[`adapters/telescope.ts`](src/nightwatch/adapters/telescope.ts) is the only path to the hardware,
+and the adapter behind it is deliberately dumb: it slews and exposes, and it has no opinion about
+whether it is allowed to. The authorisation decision lives at the boundary, is re-read from the
+store rather than cached, and runs twice — once before the mount moves and again before the shutter
+opens, because a revision can land during the slew.
+
+A blocked call is not an exception path bolted on afterwards. It returns as a tool result, the
+model re-plans, and the thread explains what happened.
+
+## Failure design
+
+| Failure | Behaviour |
+|---|---|
+| Revision lands mid-slew | Exposure blocked, approval voided, coverage loss shown, repoint proposed |
+| Duplicate notice | Existing thread updated. No second request, no second observation |
+| Late lower-version notice | Recorded; the current version stays current; consent survives |
+| Retry of an executed plan | Returns the first observation. The telescope is never commanded twice |
+| Click on a card a revision already overtook | Refused outright — the human is re-asked against the new proposal |
+| Telescope rejects the slew | Recorded as a failure with its reason, not swallowed |
+| No site can observe the burst | Says so. Proposes nothing |
+| Missing or stale input | Renders as `unknown` and **blocks** automatic recommendation |
+
+## Idempotency
+
+Every external action is keyed on:
+
+```
+(eventId, noticeVersion, telescope, planHash)
+```
+
+A retry with the same key returns the original observation and commands nothing. `planHash` covers
+only the fields that determine what the telescope is told to do — so rewording a proposal's stated
+assumptions does not void consent, while changing the pointing, exposure, filter or count does.
+
+## Known limitations
+
+Stated plainly because the project's argument is about honesty.
+
+- **Windows are altitude-only.** The science computes whether a target clears a site's altitude
+  limit. It does not model the Sun, so a reported window can fall during the site's daytime.
+  Nothing in the code or the cards calls it a night-time window.
+- **`RECOMMENDED` does not gate on the Moon.** Separation is computed and displayed, but no
+  threshold is defined, so it informs rather than decides.
+- **Notice coordinates are J2000, fed to a routine that wants equator-of-date.** Measured at under
+  0.33°, which is 3× to 100× inside the notices' own error radii, and it changes no recommendation
+  in any tested case.
+- **The drill is started by asking.** Channels has no proactive-posting API — a thread only exists
+  once something inbound creates it. Everything after that first message happens with nobody typing.
+- **Ambiguous and Auth0 were cut** when the Slack provisioning overran. See `SUBMISSION.md`.
+
+## Related work
+
+Approval gating in agent frameworks (LangGraph interrupts, CopilotKit's own approval cards)
+generally models consent as a **checkpoint in the run**. NightWatch models it as a **claim about
+state that can be falsified later** — closer to optimistic concurrency control than to a
+confirmation dialog. `planHash` is the version token; `isValidFor` is the compare-and-swap.
+
+The operational problem is real: GCN notice revisions are routine, and follow-up telescopes do
+waste time on superseded localisations.
+
+## Run it
+
+Node.js 22+ required.
 
 ```bash
-git clone https://github.com/CopilotKit/agents-everywhere-starter-kit.git
-cd agents-everywhere-starter-kit
+git clone https://github.com/MehulMittal27/nightwatch.git
+cd nightwatch
 npm ci
 cp .env.example .env
 ```
 
-Choose one template and configure only the credentials it needs. Slack and web use the root install; React Native has its own install under `apps/mobile` because Expo pins its React Native stack separately.
+Fill in `.env`:
 
-Paste this into your coding agent:
+| Variable | Where from |
+|---|---|
+| `MODEL_PROVIDER=openai`, `MODEL=gpt-5.6-sol`, `OPENAI_API_KEY` | OpenAI |
+| `INTELLIGENCE_API_KEY` | CopilotKit Intelligence, project-scoped (`cpk-…`) |
+| `CHANNEL_CODE` | The Channel **Code** in Intelligence — not the channel ID |
+| `INTELLIGENCE_CHANNEL_<CODE>_SLACK_BOT_TOKEN` / `..._SIGNING_SECRET` | Your Slack app, **after** reinstalling it |
+| `EXA_API_KEY` | Exa (optional; the template auto-registers it) |
 
-```text
-Read AGENTS.md, hackathon-overview.md, hackathon-rules.md, and
-using-sponsor-tools.md. Help me choose one template app README for my idea,
-then adapt this checkout into our own project. Ask me who it is for and
-what the agent should do in that setting. Follow this README's CopilotKit
-onboarding section for the selected app; keep its existing infrastructure.
-Use only the integrations the idea needs. Verify a complete interaction and
-prepare SUBMISSION.md, distinguishing inherited code from our event work.
+Create the Slack app from the CLI-emitted manifest rather than by hand — it carries the 17 scopes,
+10 bot events, and the separate interactivity endpoint that a hand-made app will be missing:
+
+```bash
+npx copilotkit@latest login
+npx copilotkit@latest project select --project <your-project>
+npx copilotkit@latest channels add <channel-code> --adapter slack --json
 ```
 
-### CopilotKit onboarding
+Then:
 
-Use the team's maintained setup prompts in the same coding-agent session, with this checkout as the project root. Choose one app first; setup should adapt that app rather than scaffold a second starter over it.
-
-| Your starting point | Onboarding path |
-|---|---|
-| Slack template | Run `npm run channel:setup -- --no-clipboard`, then have your agent follow the prompt it prints. This installs the current `channels-setup` skill; the command itself does not create a Channel or sign you in. Tell the agent to connect **Slack** using `apps/channel` and read its bundled `build-channels-agent` skill. |
-| Web or React Native template | The existing model-provider setup runs without Intelligence. To add managed conversations with Rich Threads and other Intelligence capabilities, use the prompt below for the chosen app. |
-
-**Connect the selected app to CopilotKit Intelligence:**
-
-```text
-Read AGENTS.md and the selected app README. Connect that app to CopilotKit
-Intelligence using the current official onboarding workflow. This checkout
-already has CopilotKit: preserve the existing app, agent, model provider,
-tools, and approval behavior. For apps/mobile, keep Expo and the separate
-mobile install; its runtime is served by apps/web.
-Generate a fresh 12-character hexadecimal run ID, substitute it for RUN_ID,
-then run from the repository root:
-npx --yes copilotkit@latest onboard start --run RUN_ID
-Follow the instructions returned by the CLI and reuse that ID for this run.
-Show the integration plan before editing, and prove the selected app works
-before and after connecting Intelligence.
+```bash
+npm run verify      # typecheck + tests, no credentials needed
+npm run dev:slack   # wait for: Channel "<code>" online
 ```
 
-The [official CopilotKit prompt](https://docs.copilotkit.ai/llms.txt) serves new projects, existing apps, and existing CopilotKit integrations. The [docs home](https://docs.copilotkit.ai/) also offers **Copy Prompt**, **Open in Codex**, and **Open in Claude Code**; add the selected template's context when using those entry points. For Slack, use the [Channels onboarding path](https://docs.copilotkit.ai/slack) above. Finish one selected workflow before starting another.
+In Slack: `/invite @yourbot`, then in a thread — `@yourbot start the drill`.
 
-Follow the CLI's returned instructions for sign-in, project selection, credentials, and verification. Keep credentials out of chat and preserve existing `.env` values. The starter reads `INTELLIGENCE_API_KEY`; if setup provisions `CPK_INTELLIGENCE_API_KEY`, map it to the variable the selected runtime actually reads. Review any required package upgrades together with the tested Channels/runtime pair and `@ag-ui/client` override. Intelligence onboarding changes the app; installing a skill or adding an API key alone does not complete that integration.
+**Run exactly one runtime.** Two processes declaring the same channel race per delivery and the
+loser silently gets nothing.
 
-## Templates
+## Tests
 
-These starting points serve different kinds of context. **CopilotKit Channels** brings the Slack agent into the conversation; **CopilotKit React** connects the web agent to the app people are using; **CopilotKit React Native** brings the same agent pattern onto a phone.
+```bash
+npm run verify
+```
 
-### 1. Slack — an agent that joins the thread
+The suite is the argument, not decoration. `a version bump invalidates a standing approval` and
+`a revision landing DURING the slew stops the exposure` are the two that matter; if either goes
+red, nothing else about this project is true.
 
-**OpenAI + CopilotKit Channels + Exa**
+The astronomy was independently verified: altitude and Moon separation were reimplemented from
+scratch in Python (Meeus, no `astronomy-engine`) and agree to **0.002°** and **0.004°** across
+twelve site/target combinations. That review found and fixed a real defect — every observing window
+ended one grid step late, at an instant the target was already below the site's limit.
 
-An agent reads what people already said, researches with Exa, and answers in the same thread with native cards and source links. Start with a support conversation, a research discussion, or a team decision.
+## Built with
 
-The included Slack app supplies thread history, subscriptions, search, and Channels UI. Configure your model, Exa, and a managed Channel, then run `npm run dev:slack`. No public tunnel is needed. Teams or other chat platforms can use the same Channels pattern, but this starter ships the Slack app.
+**CopilotKit Channels** (the Slack surface, cards, and approval round-trip) · **OpenAI
+`gpt-5.6-sol`** (prose only) · **Exa** (evidence lookup) · **astronomy-engine** (all visibility
+computation) · **NASA GCN** (real notice payloads)
 
-**[Use the Slack template →](apps/channel/)**
-
-### 2. Web — an agent inside your app
-
-**OpenAI + CopilotKit React + Ambiguous AI**
-
-An agent sees the page you are on and turns a request into a real workplace record you can still find after a refresh. Adapt it to customer follow-ups, a project workspace, or a personal planning app.
-
-The included web app supplies page context, frontend tools, agent-rendered UI, and a browser approval step. Connect an Ambiguous AI workspace, then run `npm run dev:web`; approved follow-ups are saved through the server and can be read back after refresh.
-
-**[Use the web template →](apps/web/)**
-
-### 3. React Native — an agent in your pocket
-
-**OpenAI or OpenRouter + CopilotKit React Native**
-
-A mobile agent reads app state, renders native cards, and waits for a tap before changing local sample data. Start with a personal finance assistant, a field checklist, an inventory counter, or any workflow where phone context and approval matter.
-
-The included Expo app supplies seeded finance state, native rendered tool UI, a human-in-the-loop expense approval, and a mobile-specific CopilotKit runtime endpoint served by the web app. Configure your model provider, start `npm run dev:web`, then run the mobile app from `apps/mobile`.
-
-**[Use the React Native template →](apps/mobile/)**
-
-### Make the demo yours
-
-The supplied on-call and finance assistants are **infrastructure examples**: read ambient context, call a tool, render useful UI, and return a verifiable result. Choose a different user, problem, dataset, and interaction; the goal is your own project, not another version of the starter scenario.
-
-Use the [demo prompts](dev-docs/demo-prompts.md) to learn how the pieces connect, then replace the sample domain. In the Slack sample incident flow, approval cards record decisions without executing production actions. In the web follow-up flow, the page approval button saves the reviewed Ambiguous task. In the mobile finance flow, approval changes local in-memory sample data. Enforce the same kind of write boundary around any external action you add.
-
-Want another surface pattern? The web app also includes a voice route, and the shared agent can connect to remote MCP tools when configured. The event surfaces are inspiration, not separate tracks or a requirement to build multiple apps.
-
-## Coding agent
-
-Give your agent these files before it starts coding:
-
-| File | What it provides |
-|---|---|
-| [hackathon-overview.md](hackathon-overview.md) | The challenge, four surfaces, and official judging criteria |
-| [hackathon-rules.md](hackathon-rules.md) | Build eligibility, inherited code, and required deliverables |
-| [using-sponsor-tools.md](using-sponsor-tools.md) | Every sponsor featured in this kit: access, authentication, configuration, and a first working call |
-| [AGENTS.md](AGENTS.md) | Repository conventions and verification commands |
-| [Channels skill](.agents/skills/build-channels-agent/SKILL.md) | Verified Channels APIs for the Slack template |
-
-The app READMEs provide launch commands, files to customize, and a concrete result to check. Start with one template and add a second surface only if it helps your user.
-
-## Resources
-
-| Need | Go here |
-|---|---|
-| Event details, deadline, and judging | [Find your city](https://aitinkerers.org/hackathons/global/agents-everywhere), then open its participant portal and handbook |
-| OpenAI agent development | [Agents SDK quickstart](https://openai.github.io/openai-agents-js/guides/quickstart/) |
-| OpenRouter access and model choice | [Quickstart](https://openrouter.ai/docs/quickstart) · [Keys](https://openrouter.ai/keys) · [Model catalog](https://openrouter.ai/models) · [Model switching](dev-docs/model-switching.md) |
-| CopilotKit app development | [Docs](https://docs.copilotkit.ai/) · [Tools and context](dev-docs/tools-and-context.md) · [Discord channel for technical questions](https://discord.com/channels/1122926057641742418/1548038338848489532) |
-| CopilotKit Channels | [Channels guide](https://copilotkit.ai/channels-guide.md) · [Screenshot walkthrough](dev-docs/channels-sdk-walkthrough/README.md) · [OpenTag example app](https://github.com/CopilotKit/OpenTag) |
-| Exa quickstart | [Search API guide](https://exa.ai/docs/reference/search-api-guide) · [Kit setup](using-sponsor-tools.md#exa) |
-| Auth0 API authorization | [Node API](https://auth0.com/docs/quickstart/backend/nodejs) · [Kit setup](using-sponsor-tools.md#auth0) |
-| Ambiguous AI quickstart | [Developer guide](https://www.ambiguous.ai/llms.txt) · [Kit setup](using-sponsor-tools.md#ambiguous-ai) |
-| Rehearse and debug | [Demo prompts](dev-docs/demo-prompts.md) · [Troubleshooting](dev-docs/troubleshooting.md) |
-| Prepare your entry | [Submission checklist](SUBMISSION.md) |
-
-For credit redemption instructions, choose your city on the [global event page](https://aitinkerers.org/hackathons/global/agents-everywhere) and check its participant portal's **Credits & Offers** section.
-
-For technical questions during the event, check your city's participant portal and ask your local organizers.
-
-For the Slack/web workspaces, `npm run verify` runs typechecks and offline tests without credentials. The mobile app has its own install, tests, typecheck, and Metro export checks under `apps/mobile`. Each app reports missing configuration when the relevant integration is used. Live sponsor calls and platform delivery require your accounts. See [developer docs](dev-docs/README.md) for detailed setup and deployment.
+Starter kit: [CopilotKit/agents-everywhere-starter-kit](https://github.com/CopilotKit/agents-everywhere-starter-kit).
+See [`SUBMISSION.md`](SUBMISSION.md) for exactly what was inherited and what was built during the event.
