@@ -29,13 +29,19 @@ says so, and the exposure never fires.
 The interesting property is not that it asks permission. It is that **permission expires**, and the
 system is the thing that notices.
 
-## Demo video
+## Watch this first
 
-**▶ [Watch the two-minute demo](https://youtu.be/YdIQkHb4CXU)**
+**▶ [Explainer: the problem and how NightWatch answers it](https://youtu.be/xh1xw9GirSc)**
+
+[![NightWatch explainer](https://img.youtube.com/vi/xh1xw9GirSc/maxresdefault.jpg)](https://youtu.be/xh1xw9GirSc)
+
+## Then the demo
+
+**▶ [Two-minute demo: one complete run](https://youtu.be/YdIQkHb4CXU)**
 
 [![NightWatch demo](https://img.youtube.com/vi/YdIQkHb4CXU/maxresdefault.jpg)](https://youtu.be/YdIQkHb4CXU)
 
-The video shows one complete run: a notice lands, three sites are compared, a human approves, the
+One live run, start to finish: a notice lands, three sites are compared, a human approves, the
 revision arrives mid-slew, the approval visibly voids with the coverage lost, and the repoint is
 approved and completes.
 
