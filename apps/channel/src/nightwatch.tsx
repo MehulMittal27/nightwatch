@@ -61,6 +61,23 @@ import {
 } from "../../../src/nightwatch/fixtures.ts";
 
 /**
+ * Demo safety net.
+ *
+ * A Slack card update or a late telescope rejection that arrives with nothing
+ * awaiting it is an unhandled rejection, and Node's default is to exit. Twice
+ * today that took the runtime down mid-thread - once while an observation was
+ * running. Losing the process during a recording take is worse than carrying on
+ * with a logged error, so the demo runtime logs and survives.
+ *
+ * It is deliberately loud: anything printed here is a bug to fix, not noise to
+ * live with. The startup online-check in server.ts is untouched, so a genuinely
+ * broken deploy still refuses to start.
+ */
+process.on("unhandledRejection", (reason) => {
+  console.error("[nightwatch] unhandled rejection - demo continuing:", reason);
+});
+
+/**
  * One store for the process. Slack holds no state; this does.
  *
  * Reassigned when a drill starts so the demo can be run repeatedly without
@@ -370,12 +387,22 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
     pending.catch(() => {});
   };
 
+  // Settle the rejection at creation, not at the await.
+  //
+  // Nothing awaits this call while the revision is being posted below, and the
+  // whole point is that it REJECTS during that gap - the gate blocking the
+  // exposure is the success case. An unrejected floating promise in that window
+  // is an unhandled rejection, which took the runtime down the first time the
+  // gate actually fired.
   const run = executeApprovedPlan(
     store,
     new SimulatedTelescope({ id: `sim-${plan.siteId}`, stepMs: SIMULATOR_STEP_MS }),
     plan,
     approval,
     render,
+  ).then(
+    () => null,
+    (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
   );
 
   // The revised notice arrives on its own while the mount is still moving.
@@ -387,18 +414,20 @@ async function approveAndObserve(ctx: any, plan: Plan, planHash: string): Promis
     await landRevision(ctx.thread).catch(() => {});
   }
 
-  try {
-    await run;
-    await pending;
-  } catch (err) {
-    await pending.catch(() => {});
+  const blocked = await run;
+  await pending.catch(() => {});
+
+  if (blocked !== null) {
     await ctx.thread.post(
       <Message accent={ACCENT.voided}>
         <Header>Telescope call blocked</Header>
         <Section>
-          <Markdown>{err instanceof Error ? err.message : String(err)}</Markdown>
+          <Markdown>{blocked.message}</Markdown>
         </Section>
-        <Context>The approval was no longer valid. Nothing was commanded.</Context>
+        <Context>
+          Consent was re-checked after the slew and was no longer valid. The shutter never
+          opened.
+        </Context>
       </Message>,
     );
   }
