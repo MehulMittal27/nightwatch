@@ -31,7 +31,9 @@ system is the thing that notices.
 
 ## Demo video
 
-<!-- EMBED: two-minute video -->
+**▶ [Watch the two-minute demo](https://youtu.be/OsU66kmfuuI)**
+
+[![NightWatch demo](https://img.youtube.com/vi/OsU66kmfuuI/maxresdefault.jpg)](https://youtu.be/OsU66kmfuuI)
 
 The video shows one complete run: a notice lands, three sites are compared, a human approves, the
 revision arrives mid-slew, the approval visibly voids with the coverage lost, and the repoint is
@@ -42,7 +44,7 @@ approved and completes.
 | | |
 |---|---|
 | **Surface** | Slack, one thread per burst, via CopilotKit Channels |
-| **Deployed URL** | <!-- URL --> |
+| **Deployed URL** | Not deployed. The Channel listener is a long-running websocket worker, not a request handler; run it locally with `npm run dev:slack`, or with the included `Dockerfile` |
 | **Repository** | https://github.com/MehulMittal27/nightwatch |
 | **Telescope** | **SIMULATED.** Every card says so. No real observatory is contacted. |
 

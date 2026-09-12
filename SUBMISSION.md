@@ -2,8 +2,8 @@
 
 **Event:** Agents, Everywhere — AI Tinkerers global hackathon, 12 September 2026
 **Repository:** https://github.com/MehulMittal27/nightwatch
-**Video:** <!-- URL -->
-**Deployed URL:** <!-- URL -->
+**Video:** https://youtu.be/OsU66kmfuuI
+**Deployed URL:** Not deployed. The listener holds an outbound websocket and must run as a persistent worker; a `Dockerfile` is included and the image builds clean.
 **Social post:** <!-- URL -->
 
 ---
@@ -132,16 +132,16 @@ committed it, found it, and fixed it.
 - [x] The README lists the credentials and separate processes required
 - [x] `npm run verify` passes — 42 project tests plus the kit's own suites
 - [x] `.env` is gitignored and was verified untracked; no key is committed
-- [ ] Sample data, session-only state, and unimplemented integrations are clearly labeled
+- [x] Sample data, session-only state, and unimplemented integrations are clearly labeled
 
 ## Two-minute demo video
 
-- [ ] Show the surface and existing context before the prompt
-- [ ] Demonstrate one complete interaction
-- [ ] Show a visible result
-- [ ] Distinguish the approval decision from execution, and show the resulting behaviour
-- [ ] State which sponsor technologies made the interaction possible
-- [ ] Check length and audio
+- [x] Show the surface and existing context before the prompt
+- [x] Demonstrate one complete interaction
+- [x] Show a visible result
+- [x] Distinguish the approval decision from execution, and show the resulting behaviour
+- [x] State which sponsor technologies made the interaction possible
+- [x] Check length and audio
 
 ## Team
 
@@ -154,7 +154,7 @@ committed it, found it, and fixed it.
 ## Final submission
 
 - [ ] Follow the organizer's posting and sponsor-tagging instructions
-- [ ] Link the public repository and video
-- [ ] Credit the sponsors used
-- [ ] Check the live integration once more before recording or submitting
-- [ ] Inspect the repository, video and screenshots for secrets
+- [x] Link the public repository and video
+- [x] Credit the sponsors used
+- [x] Check the live integration once more before recording or submitting
+- [x] Inspect the repository, video and screenshots for secrets
