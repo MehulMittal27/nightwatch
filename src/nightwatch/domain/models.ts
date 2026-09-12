@@ -13,6 +13,8 @@
  *    which blocks automatic recommendation. Never guess or interpolate.
  */
 
+import { createHash } from 'node:crypto';
+
 /** Missing or stale data. Renders literally as `unknown`; blocks recommendation. */
 export const UNKNOWN = 'unknown' as const;
 export type Unknown = typeof UNKNOWN;
@@ -131,8 +133,22 @@ export interface Plan {
  * identically must hash identically; any change that alters what the telescope
  * does must change the hash. Approvals are bound to this value.
  */
-export function hashPlan(_plan: Plan): string {
-  throw new Error('not implemented');
+export function hashPlan(plan: Plan): string {
+  // Only the fields that determine what the telescope is commanded to do.
+  // `assumptions` is prose for the human reading the card: rewording it must
+  // NOT void a standing approval, because nothing about the pointing changed.
+  const commanded = [
+    plan.eventId,
+    plan.noticeVersion,
+    plan.siteId,
+    plan.targetRaDeg.toFixed(6),
+    plan.targetDecDeg.toFixed(6),
+    plan.exposureSec,
+    plan.filter,
+    plan.exposureCount,
+    plan.startNoLaterThanUtc.toISOString(),
+  ].join('\u0000');
+  return createHash('sha256').update(commanded).digest('hex').slice(0, 16);
 }
 
 // ---------------------------------------------------------------------------
